@@ -1,0 +1,42 @@
+{
+    "name": "Nexus-community",
+    "private": true,
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "scripts": {
+        "build": "turbo build",
+        "dev": "turbo dev",
+        "dev:clean": "dev.cmd",
+        "dev:signaling": "yarn workspace @repo/signaling-server dev",
+        "dev:node-api": "yarn workspace @repo/node-api dev",
+        "dev:backend": "turbo dev --filter=@repo/node-api --filter=@repo/signaling-server",
+        "lint": "turbo lint",
+        "format": "prettier --write \"**/*.{ts,tsx,md,js,json}\"",
+        "clean": "find . -name \"node_modules\" -o -name \".turbo\" -o -name \"dist\" -o -name \".next\" | xargs rm -rf",
+        "db:generate": "turbo db:generate",
+        "db:migrate": "turbo db:migrate",
+        "db:migrate_dev": "turbo db:migrate_dev",
+        "db:studio": "turbo db:studio",
+        "db:push": "turbo db:push"
+    },
+    "devDependencies": {
+        "@repo/eslint-config": "workspace:*",
+        "eslint": "^9.0.0",
+        "lint-staged": "^15.2.10",
+        "prettier": "^3.0.0",
+        "tsx": "^4.22.4",
+        "turbo": "latest"
+    },
+    "lint-staged": {
+        "*.{js,jsx,ts,tsx}": [
+            "eslint --fix",
+            "prettier --write"
+        ],
+        "*.{json,md,css}": [
+            "prettier --write"
+        ]
+    },
+    "packageManager": "yarn@4.16.0"
+}

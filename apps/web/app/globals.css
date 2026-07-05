@@ -1,0 +1,242 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@layer theme, base, clerk, components, utilities;
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+html,
+body,
+:root {
+    height: 100%;
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --font-sans: var(--font-inter), var(--font-geist-sans), sans-serif;
+    --font-display: var(--font-space-grotesk), sans-serif;
+    --font-mono: var(--font-geist-mono), monospace;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-primary-color: var(--primary-color);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    
+    /* Discord Brand Additions */
+    --color-brand-green: #35ed7e;
+    --color-brand-magenta: #ec48bd;
+    --color-brand-link: #00b0f4;
+    --color-brand-canvas: #0a0d3a;
+    --color-surface-indigo: #1e2353;
+    --color-surface-onyx: #23272a;
+    --color-surface-black: #000000;
+    --color-ink-dark: #000000;
+    --color-muted-dark: #333333;
+    --color-hairline: #23272a;
+
+    --color-discord-dark-bg: #313338;
+    --color-discord-darker-bg: #2b2d31;
+    --color-discord-darkest-bg: #1e1f22;
+    --color-discord-input-bg: #383a40;
+    --color-discord-hover: #35373c;
+    --color-discord-green: #23a55a;
+    --color-discord-red: #da373c;
+
+    /* Custom Border Radii */
+    --radius-xs: 6px;
+    --radius-sm: 12px;
+    --radius-md: 14px;
+    --radius-lg: 16px;
+    --radius-xl: 40px;
+    --radius-pill: 50px;
+    --radius-jumbo: 120px;
+
+    /* Custom Animations */
+    --animate-mesh-slow: mesh-flow 15s ease infinite;
+    --animate-marquee: marquee-scroll 25s linear infinite;
+
+    @keyframes mesh-flow {
+        0%, 100% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+    }
+    @keyframes marquee-scroll {
+        0% { transform: translateX(0%); }
+        100% { transform: translateX(-50%); }
+    }
+}
+
+:root {
+    --radius: 0.625rem;
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-color: #5865f2;
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --chart-1: oklch(0.646 0.222 41.116);
+    --chart-2: oklch(0.6 0.118 184.704);
+    --chart-3: oklch(0.398 0.07 227.392);
+    --chart-4: oklch(0.828 0.189 84.429);
+    --chart-5: oklch(0.769 0.188 70.08);
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-color: #5865f2;
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.488 0.243 264.376);
+    --chart-2: oklch(0.696 0.17 162.48);
+    --chart-3: oklch(0.769 0.188 70.08);
+    --chart-4: oklch(0.627 0.265 303.9);
+    --chart-5: oklch(0.645 0.246 16.439);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+@utility bg-brand-mesh {
+    background: radial-gradient(circle at 10% 20%, rgba(88, 101, 242, 0.45) 0%, transparent 45%),
+                radial-gradient(circle at 90% 80%, rgba(236, 72, 189, 0.45) 0%, transparent 45%),
+                #0a0d3a;
+    background-size: 200% 200%;
+    animation: mesh-flow 15s ease infinite;
+}
+
+@utility marquee-content {
+    display: flex;
+    gap: 4rem;
+    animation: marquee-scroll 25s linear infinite;
+}
+
+/* ── react-h5-audio-player overrides ── */
+.nexus-audio-player.rhap_container {
+    background-color: transparent !important;
+    box-shadow: none !important;
+    padding: 4px 12px 8px !important;
+}
+
+.nexus-audio-player .rhap_main-controls-button,
+.nexus-audio-player .rhap_play-pause-button {
+    color: #6366f1 !important;
+    font-size: 28px !important;
+    width: 28px !important;
+    height: 28px !important;
+}
+
+.nexus-audio-player .rhap_progress-bar {
+    background-color: #d4d4d8 !important;
+    height: 4px !important;
+}
+
+.nexus-audio-player .rhap_progress-filled {
+    background-color: #6366f1 !important;
+}
+
+.nexus-audio-player .rhap_progress-indicator {
+    background: #6366f1 !important;
+    width: 12px !important;
+    height: 12px !important;
+    top: -4px !important;
+    box-shadow: 0 0 3px rgba(99, 102, 241, 0.4) !important;
+}
+
+.nexus-audio-player .rhap_download-progress {
+    background-color: #a5b4fc !important;
+}
+
+.nexus-audio-player .rhap_time {
+    color: #71717a !important;
+    font-size: 10px !important;
+}
+
+.dark .nexus-audio-player .rhap_progress-bar {
+    background-color: #3f3f46 !important;
+}
+
+.dark .nexus-audio-player .rhap_download-progress {
+    background-color: #4338ca !important;
+}
+
+.dark .nexus-audio-player .rhap_time {
+    color: #a1a1aa !important;
+}
+

@@ -1,0 +1,44 @@
+import type { Channel, ChannelType, Server } from "@repo/db";
+import { create } from "zustand";
+
+export type ModalType =
+    | "createServer"
+    | "invite"
+    | "editServer"
+    | "members"
+    | "createChannel"
+    | "leaveServer"
+    | "deleteServer"
+    | "deleteChannel"
+    | "editChannel"
+    | "messageFile"
+    | "deleteMessage"
+    | "steganography";
+
+interface ModalData {
+    server?: Server;
+    channel?: Channel;
+    channelType?: ChannelType;
+    apiUrl?: string;
+    query?: Record<string, string>;
+    imageUrl?: string;
+    /** The URL of the file for steganography (can be image, audio, video, or pdf). */
+    fileUrl?: string;
+    /** The detected file type for steganography modal routing. */
+    stegFileType?: "image" | "audio" | "video" | "pdf";
+}
+interface ModalStore {
+    type: ModalType | null;
+    data: ModalData;
+    isOpen: boolean;
+    onOpen: (type: ModalType, data?: ModalData) => void;
+    onClose: () => void;
+}
+
+export const useModal = create<ModalStore>((set) => ({
+    type: null,
+    isOpen: false,
+    data: {},
+    onOpen: (type: ModalType, data = {}) => set({ isOpen: true, type, data }),
+    onClose: () => set({ type: null, isOpen: false }),
+}));

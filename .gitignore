@@ -1,0 +1,15 @@
+# dependencies
+/node_modules
+/dist
+.turbo
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# env
+.env.production
+.env
+.env.local

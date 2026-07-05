@@ -1,0 +1,40 @@
+name: Build and Lint
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://user:password@localhost:5432/db"
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_dummy"
+      CLERK_SECRET_KEY: "sk_test_dummy"
+      NEXT_PUBLIC_SOCKET_URL: "http://localhost:3001"
+      UPLOADTHING_TOKEN: "dummy_token"
+      NEXT_PUBLIC_LIVEKIT_URL: "wss://dummy.livekit.cloud"
+      LIVEKIT_API_KEY: "dummy_key"
+      LIVEKIT_API_SECRET: "dummy_secret"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.0.0"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run linting
+        run: bun run lint
+
+      - name: Build project
+        run: bun run build

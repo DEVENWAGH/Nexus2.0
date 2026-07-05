@@ -1,0 +1,29 @@
+{
+    "name": "@repo/p2p",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": {
+            "browser": "./src/browser.ts",
+            "default": "./src/index.ts"
+        },
+        "./encryption": "./src/encryption.ts",
+        "./signaling-client": "./src/signaling-client.ts",
+        "./p2p-mesh": "./src/p2p-mesh.ts",
+        "./file-transfer": "./src/file-transfer.ts"
+    },
+    "sideEffects": false,
+    "scripts": {
+        "dev": "tsc --watch",
+        "build": "tsc",
+        "lint": "eslint src"
+    },
+    "devDependencies": {
+        "@repo/eslint-config": "workspace:*",
+        "@repo/typescript-config": "workspace:*",
+        "@types/node": "^22.0.0",
+        "eslint": "^9.0.0",
+        "typescript": "^5"
+    }
+}

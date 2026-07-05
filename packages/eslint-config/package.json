@@ -1,0 +1,30 @@
+{
+    "name": "@repo/eslint-config",
+    "version": "0.0.0",
+    "private": true,
+    "license": "MIT",
+    "main": "./flat.js",
+    "exports": {
+        ".": "./flat.js",
+        "./flat.js": "./flat.js",
+        "./library.js": "./library.js"
+    },
+    "publishConfig": {
+        "access": "public",
+        "main": "./flat.js"
+    },
+    "type": "module",
+    "dependencies": {
+        "eslint-config-prettier": "^9.1.0",
+        "eslint-config-turbo": "^2.3.3",
+        "eslint-plugin-only-warn": "^1.0.0",
+        "eslint-plugin-turbo": "^2.3.3"
+    },
+    "peerDependencies": {
+        "eslint": ">=9"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.39.2",
+        "typescript-eslint": "^8.54.0"
+    }
+}
