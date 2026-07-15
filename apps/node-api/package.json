@@ -10,14 +10,17 @@
         "lint": "eslint src"
     },
     "dependencies": {
-        "@clerk/backend": "^2.33.5",
         "@hono/node-server": "^1.14.3",
         "@repo/db": "workspace:*",
         "@repo/p2p": "workspace:*",
+        "@types/bs58": "^5.0.0",
+        "bs58": "^6.0.0",
         "dotenv": "^17.2.3",
+        "ethers": "^6.17.0",
         "hono": "^4.7.10",
         "jimp": "^1.6.0",
         "node-cron": "^4.5.0",
+        "nodemailer": "^9.0.3",
         "socket.io": "^4.8.3",
         "uploadthing": "^7.7.4"
     },
@@ -26,6 +29,7 @@
         "@repo/typescript-config": "workspace:*",
         "@types/node": "^22.0.0",
         "@types/node-cron": "^3.0.11",
+        "@types/nodemailer": "^8.0.1",
         "eslint": "^9.0.0",
         "tsx": "^4.22.4",
         "typescript": "^5"

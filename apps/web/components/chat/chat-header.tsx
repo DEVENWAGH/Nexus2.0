@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Hash, Settings, UserPlus, Users, PlusCircle, Volume2, Video } from "lucide-react";
 import UserAvatar from "../user-avatar";
 import { SocketIndicator } from "../socket-indicator";
@@ -47,6 +48,12 @@ const ChatHeader = ({
     mobileToggle,
 }: ChatHeaderProps) => {
     const { onOpen } = useModal();
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
+
     const isAdmin = role === MemberRole.ADMIN;
     const isModerator = role === MemberRole.ADMIN || role === MemberRole.MODERATOR;
 
@@ -72,7 +79,7 @@ const ChatHeader = ({
             <p className="font-semibold text-md">{name}</p>
             <div className="ml-auto flex items-center">
                 {/* Video call button for conversations */}
-                {type === "conversation" && (
+                {isMounted && type === "conversation" && (
                     <ChatVideoButton
                         currentMemberId={currentMemberId}
                         recipientUserId={recipientUserId}
@@ -84,10 +91,10 @@ const ChatHeader = ({
                     />
                 )}
                 {/* Self-Destruct Midnight Purge Timer */}
-                <CronCountdownHeader />
+                {isMounted && <CronCountdownHeader />}
                 
                 {/* Server settings dropdown shortcut */}
-                {type === "channel" && isModerator && server && (
+                {isMounted && type === "channel" && isModerator && server && (
                     <div className="mr-2">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -144,11 +151,13 @@ const ChatHeader = ({
                     </div>
                 )}
 
-                <SocketIndicator
-                    recipientUserId={
-                        type === "conversation" ? recipientUserId : undefined
-                    }
-                />
+                {isMounted && (
+                    <SocketIndicator
+                        recipientUserId={
+                            type === "conversation" ? recipientUserId : undefined
+                        }
+                    />
+                )}
             </div>
         </div>
     );

@@ -28,11 +28,16 @@ export const OutgoingCallModal = () => {
 
             if (remaining === 0) {
                 clearInterval(interval);
+                if (callState.callId) {
+                    cancelCall(callState.callId);
+                } else {
+                    cancelCall();
+                }
             }
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [callState.initiatedAt, callState.isOutgoing]);
+    }, [callState.initiatedAt, callState.isOutgoing, callState.callId, cancelCall]);
 
     // Show modal as soon as we're in outgoing state, don't wait for callId
     const isOpen = callState.isOutgoing;
@@ -74,9 +79,7 @@ export const OutgoingCallModal = () => {
 
                     <div className="pt-4">
                         <Button
-                            onClick={() =>
-                                callState.callId && cancelCall(callState.callId)
-                            }
+                            onClick={() => cancelCall(callState.callId ?? undefined)}
                             variant="destructive"
                             size="lg"
                             className="rounded-full h-16 w-16 p-0"

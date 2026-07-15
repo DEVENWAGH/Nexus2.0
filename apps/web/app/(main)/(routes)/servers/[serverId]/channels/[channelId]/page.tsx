@@ -68,6 +68,7 @@ const ChannelPage = async ({
                     queryKey={`chat:${channelId}`}
                     paramKey="channelId"
                     currentMember={member}
+                    members={server?.members}
                 >
                     <ChatContentWrapper>
                         <ChatMessages
@@ -109,6 +110,7 @@ const ChannelPage = async ({
                         currentMember={member}
                         serverId={serverId}
                         type="channel"
+                        members={server?.members}
                     />
                 </div>
             )}

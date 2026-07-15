@@ -13,7 +13,9 @@ export type ModalType =
     | "editChannel"
     | "messageFile"
     | "deleteMessage"
-    | "steganography";
+    | "steganography"
+    | "editProfile";
+
 
 interface ModalData {
     server?: Server;

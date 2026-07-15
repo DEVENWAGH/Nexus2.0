@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
     Dialog,
@@ -14,7 +14,7 @@ import { Spinner } from "../ui/spinner";
 import { useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
 const LeaveServerModal = () => {

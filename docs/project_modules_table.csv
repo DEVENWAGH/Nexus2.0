@@ -1,0 +1,33 @@
+Sr.No,Module,Problem,Solution,Tech Stack,API Requirements,Signature of Guide(After Module Development) with date
+1,Secure Real-Time Messaging,"• Message interception
+• Slow communication
+• No real-time synchronization","• Real-time encrypted messaging
+• Hybrid Socket.IO + WebRTC communication
+• End-to-End Encryption","Socket.IO, WebRTC, Node.js, AES-256-GCM",Socket.IO API,
+2,Decentralized P2P Mesh Communication,"• Centralized servers expose transit routes
+• Server stores messages in database, creating a single point of failure (SPOF)
+• Server exposes metadata logs","• Establish direct, serverless browser-to-browser WebRTC Data Channels
+• Use a lightweight WebSocket signaling server as an ICE/SDP broker
+• Bypassing database logs for direct communication","HTML5, Next.js, TypeScript, WebRTC (RTCPeerConnection), WebSockets (ws/Socket.IO)","Signaling Server: ws://localhost:3001; Events: join, leave, signal",
+3,Incremental Chunk-Based File Transfer,"• Direct transfer of large files in browser environments causes JS heap memory exhaustion
+• Browser tab crashes during large file transfers","• Slice files into 32KB chunks
+• Compute SHA-256 integrity hash per chunk
+• Stream via WebRTC data channel with sliding-window ACK flow control
+• Reassemble as Blob in memory","Web Crypto API (SHA-256), Javascript ArrayBuffers, WebRTC Data Channels","Data Channel Events: file_metadata, file_chunk, file_ack",
+4,Secure Communication & Encryption,"• Database stored messages are vulnerable to database leaks
+• Administrator/third-party snooping of plaintext data","• Apply AES-256-GCM encryption
+• P2P payloads encrypted using scrypt-derived channel keys
+• Database messages encrypted at Hono API level prior to database write","Web Crypto API, NodeJS crypto library, AES-256-GCM, PBKDF2, SSL/TLS","Cipher envelope: nonce, ciphertext, version payload",
+5,Blockchain-Based Security & Ledger,"• Unauthorized modification of past message logs inside SQL database tables cannot be detected
+• Lack of tamper-proof message verification","• Implement a local Proof-of-Work blockchain hash ledger
+• Send events to mempool and mine blocks (PoW difficulty: 4 leading zeros)
+• Validation checks fail if any message is altered","Hono Node.js API, TypeScript, SHA-256 block hashing","Endpoints: GET /api/blockchain/status, POST /api/blockchain/mine, GET /api/blockchain/verify/:hash",
+6,Multi-Media Steganography Suite,"• Traffic analysis firewalls monitor and flag encrypted communication protocols
+• Deep packet inspection identifying messaging traffic as suspicious","• Obfuscate messages by encoding them in media files
+• Use LSB red channel for PNGs, binary appends for MP3/MP4/WebM files, and post-%%EOF characters in PDFs","Jimp (Image LSB), NodeJS Buffers, AES-256-GCM (scrypt derived keys)","Endpoints: POST /api/steganography/encode, POST /api/steganography/decode",
+7,Security Watchdog (Self-Destruct),"• Retaining communication history indefinitely increases risk of forensic recovery
+• Server-side storage bloat and metadata analysis risks","• Enforce strict 24-hour Time-to-Live (TTL) on all messages
+• Sweep database records on boot, nightly at midnight via cron, or on-demand from the admin panel","PostgreSQL tables, Prisma client hooks, node-cron",Endpoints: GET /api/internal/purge-expired,
+8,Fake Node Detection (Sybil Watchdog),"• Rogue nodes can join rooms and spoof sender identities
+• Sybil flooding attacks in decentralised channels","• Generate ECDSA did:key pairs locally and store private keys in sandboxed IndexedDB
+• Sign all WebRTC packets; peers verify signatures and blacklist nodes on 3+ check failures","Web Crypto API (ECDSA P-256), IndexedDB (nexus-identity), React State","Client logic: verifyPayload(did, signature, content)",

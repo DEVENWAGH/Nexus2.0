@@ -1,7 +1,8 @@
-import { verifyToken } from "@clerk/backend";
+import { verify } from "hono/jwt";
 import type { Context, Next } from "hono";
 
 const DEV_MODE = process.env.NODE_ENV !== "production";
+const JWT_SECRET = process.env.JWT_SECRET || "nexus-fallback-secret-key-321";
 
 type AppEnv = {
     Variables: {
@@ -27,12 +28,11 @@ export async function getUserIdFromRequest(c: Context): Promise<string | null> {
     if (authHeader?.startsWith("Bearer ")) {
         try {
             const token = authHeader.slice(7);
-            const payload = await verifyToken(token, {
-                secretKey: process.env.CLERK_SECRET_KEY,
-            });
-            return payload.sub ?? null;
-        } catch {
-            // fall through
+            const payload = await verify(token, JWT_SECRET, "HS256");
+            return (payload.sub as string) ?? null;
+
+        } catch (e) {
+            console.error("[auth] JWT verification failed:", e);
         }
     }
 

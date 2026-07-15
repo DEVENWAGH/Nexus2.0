@@ -12,7 +12,8 @@ import MobileToggle from "@/components/mobile-toggle";
 
 interface ConversationPageProps {
     params: Promise<{ conversationId: string; serverId: string }>;
-    searchParams: Promise<{ video?: boolean }>;
+    searchParams: Promise<{ audio?: boolean }>;
+
 }
 
 const ConversationPage = async (props: ConversationPageProps) => {
@@ -82,25 +83,28 @@ const ConversationPage = async (props: ConversationPageProps) => {
                 mobileToggle={<MobileToggle serverId={serverId} />}
             />
 
-            {searchParams.video && (
+            {String(searchParams.audio) === "true" && (
                 <MediaRoom
                     chatId={conversation.id}
-                    video={true}
+                    video={false}
                     audio={true}
                     autoJoin={true}
                     channelName={otherMember.profile.name}
                     currentMember={currentMember}
                     serverId={serverId}
                     type="conversation"
+                    members={server?.members}
                 />
             )}
 
-            {!searchParams.video && (
+            {String(searchParams.audio) !== "true" && (
+
                 <P2PChatBridge
                     roomId={conversation.id}
                     queryKey={`chat:${conversation.id}`}
                     paramKey="conversationId"
                     currentMember={currentMember}
+                    members={server?.members}
                 >
                     <ChatContentWrapper>
                         <div className="flex-1 overflow-y-auto">

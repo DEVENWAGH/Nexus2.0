@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -30,7 +30,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Spinner } from "../ui/spinner";
 import { useModal } from "@/hooks/use-mode-store";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
 import {
     extractBase64,
     prepareImageFileForSteg,
@@ -128,7 +128,7 @@ const fileOrUrlToBase64 = async (fileUrl: string, localFile: File | null): Promi
         const dataUrl = await fileToBase64(new File([blob], "file", { type: blob.type }));
         return extractBase64(dataUrl);
     }
-    // Remote URL — fetch and convert
+    // Remote URL â€” fetch and convert
     const resp = await fetch(fileUrl);
     if (!resp.ok) throw new Error("Failed to fetch file for encoding");
     const blob = await resp.blob();
@@ -210,7 +210,7 @@ const MessageFileModal = () => {
                 setIsEncoding(true);
 
                 if (stegType === "image") {
-                    // ── Image steganography (existing LSB flow) ──
+                    // â”€â”€ Image steganography (existing LSB flow) â”€â”€
                     const sourceFile = localFile ? await prepareImageFileForSteg(localFile) : null;
                     const rawDataUrl = sourceFile ? await fileToBase64(sourceFile) : null;
                     const imageB64 = rawDataUrl
@@ -240,7 +240,7 @@ const MessageFileModal = () => {
                         { headers: { ...(userId ? { "X-User-Id": userId } : {}) } },
                     );
                 } else {
-                    // ── Audio / Video / PDF steganography (append-based) ──
+                    // â”€â”€ Audio / Video / PDF steganography (append-based) â”€â”€
                     const fileB64 = await fileOrUrlToBase64(values.fileUrl, localFile);
 
                     if (!fileB64) {
@@ -383,7 +383,7 @@ const MessageFileModal = () => {
                                     {/* File type indicator */}
                                     <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                                         {meta.icon}
-                                        <span>Detected: {meta.label} · Uses {meta.technique}</span>
+                                        <span>Detected: {meta.label} Â· Uses {meta.technique}</span>
                                     </div>
 
                                     <div className="space-y-2">

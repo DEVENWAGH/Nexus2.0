@@ -1,14 +1,11 @@
-import { config } from "dotenv";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env") });
+import "./load-env";
 import { createServer } from "node:http";
 import { getRequestListener } from "@hono/node-server";
 import { createApp } from "./routes";
 import { createSocketServer } from "./socket";
 import { prisma } from "@repo/db";
 import cron from "node-cron";
+import { runAndEmailAudit } from "./lib/audit";
 
 const PORT = Number(process.env.NODE_API_PORT || process.env.PORT || 8000);
 const SOCKET_IO_PATH = "/api/socket/io";
@@ -77,8 +74,17 @@ httpServer.listen(PORT, async () => {
     // Runs at 00:00:00 every night (server local time).
     // Pattern: second=0, minute=0, hour=0, day=*, month=*, weekday=*
     cron.schedule("0 0 0 * * *", () => {
-        console.log("[cron] ⏰ Midnight purge triggered — deleting expired messages...");
-        purgeExpiredMessages().catch(console.error);
+        console.log("[cron] ⏰ Midnight integrity audit and purge triggered...");
+        runAndEmailAudit()
+            .then((result) => {
+                if (result.verified) {
+                    console.log("[cron] Ledger integrity verified. Proceeding with purge.");
+                } else {
+                    console.warn(`[cron] 🚨 Integrity mismatch! Detected ${result.tamperedCount} tampered messages. Alert email sent.`);
+                }
+                return purgeExpiredMessages();
+            })
+            .catch(console.error);
     });
 
     console.log("[cron] Midnight purge scheduled at 00:00:00 every night");

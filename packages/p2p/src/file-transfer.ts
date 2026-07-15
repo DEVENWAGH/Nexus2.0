@@ -43,7 +43,7 @@ export async function getFileChunk(
 export class FileReassemblyBuffer {
     private chunks: ArrayBuffer[] = [];
     private receivedCount = 0;
-    private metadata: FileMetadata;
+    public readonly metadata: FileMetadata;
 
     constructor(metadata: FileMetadata) {
         this.metadata = metadata;

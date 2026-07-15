@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTheme } from "next-themes";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
+
 import axios from "axios";
 import { cn } from "@/lib/utils";
 import { useIdentity } from "@/hooks/use-identity";

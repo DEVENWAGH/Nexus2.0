@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useBlockchain } from "@/hooks/use-blockchain";
 import { motion, AnimatePresence } from "motion/react";
 import { useTheme } from "next-themes";
 import {
@@ -55,9 +56,8 @@ interface PlatformAnalytics {
     };
     blockchain: {
         connected: boolean;
-        length: number;
-        localLength: number;
-        nodeId: string;
+        mode: string;
+        note?: string;
         pendingTransactions: number;
     };
     system: {
@@ -88,6 +88,13 @@ interface MineResult {
         hash: string;
         transactionCount: number;
     };
+}
+
+interface AuditResult {
+    verified: boolean;
+    totalChecked: number;
+    tamperedCount: number;
+    tamperedDetails: Array<{ id: string; content: string; member: string; timestamp: string }>;
 }
 
 // ── Theme Toggle ───────────────────────────────────────────────────────────────
@@ -243,7 +250,12 @@ export default function AdminDashboard() {
     const [purgeLoading, setPurgeLoading] = useState(false);
     const [mineResult, setMineResult] = useState<MineResult | null>(null);
     const [mineLoading, setMineLoading] = useState(false);
+    const [auditResult, setAuditResult] = useState<AuditResult | null>(null);
+    const [auditLoading, setAuditLoading] = useState(false);
     const [logs, setLogs] = useState<{ text: string; type: "info" | "success" | "error" | "warn"; id: number }[]>([]);
+
+    // Client-side blockchain (IndexedDB + PoW Web Worker)
+    const { blocks, pending, isMining, lastMinedBlock, mine } = useBlockchain();
 
     const addLog = useCallback((text: string, type: "info" | "success" | "error" | "warn" = "info") => {
         setLogs((prev) => [{ text, type, id: Date.now() + Math.random() }, ...prev.slice(0, 49)]);
@@ -330,20 +342,40 @@ export default function AdminDashboard() {
     const handleMine = async () => {
         setMineLoading(true);
         setMineResult(null);
-        addLog("Initiating proof-of-work mine for pending blockchain ledger transactions...", "info");
+        addLog("Initiating proof-of-work mining on client-side blockchain ledger...", "info");
         try {
-            const res = await axios.post<MineResult>(`${NODE_API}/api/blockchain/mine`, {}, { withCredentials: true });
-            setMineResult(res.data);
-            if (res.data.success) {
-                addLog(`Ledger block #${res.data.block?.index} mined successfully (hash: ${res.data.block?.hash.slice(0, 16)}...)`, "success");
+            const block = await mine();
+            if (block) {
+                setMineResult({ success: true, block: { index: block.index, timestamp: new Date(block.timestamp).toISOString(), hash: block.hash, transactionCount: block.transactions.length } });
+                addLog(`Ledger block #${block.index} mined locally (hash: ${block.hash.slice(0, 16)}...) — stored in IndexedDB`, "success");
                 void fetchAnalytics();
             } else {
-                addLog(`Mining request skipped: ${res.data.message || "No transactions pending"}`, "warn");
+                setMineResult({ success: false, message: "No pending transactions in local ledger" });
+                addLog("Mining skipped: no pending transactions in local IndexedDB chain", "warn");
             }
         } catch {
-            addLog("Failed to request mining from node API", "error");
+            addLog("Client-side mining failed", "error");
         } finally {
             setMineLoading(false);
+        }
+    };
+
+    const handleAudit = async () => {
+        setAuditLoading(true);
+        setAuditResult(null);
+        addLog("Initiating platform database-to-blockchain ledger integrity audit...", "info");
+        try {
+            const res = await axios.post<AuditResult>(`${NODE_API}/api/blockchain/audit`, {}, { withCredentials: true });
+            setAuditResult(res.data);
+            if (res.data.verified) {
+                addLog(`Security Audit Complete: Ledger integrity verified! Checked ${res.data.totalChecked} messages.`, "success");
+            } else {
+                addLog(`🚨 Security Audit Failure! Detected ${res.data.tamperedCount} tampered messages in database! Admin email dispatched.`, "error");
+            }
+        } catch {
+            addLog("Failed to request system integrity audit from API", "error");
+        } finally {
+            setAuditLoading(false);
         }
     };
 
@@ -615,7 +647,88 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Third row: Blockchain Ledger Health & Activity logs */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    {/* Security Watchdog Audit */}
+                    <div className="rounded-2xl bg-card border border-border p-5 flex flex-col gap-4 shadow-sm dark:shadow-none justify-between">
+                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                            <div className="flex items-center gap-2">
+                                <Lock className="w-4 h-4 text-indigo-500" />
+                                <h2 className="text-sm font-bold tracking-tight text-foreground">Watchdog Audit</h2>
+                            </div>
+                            <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                auditResult 
+                                    ? auditResult.verified 
+                                        ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                        : "bg-rose-500/10 text-rose-500 border-rose-500/20"
+                                    : "bg-secondary text-muted-foreground border-border"
+                            }`}>
+                                {auditResult ? (
+                                    auditResult.verified ? (
+                                        <>Verified Secure</>
+                                    ) : (
+                                        <>Tampering Detected</>
+                                    )
+                                ) : (
+                                    <>No Audit Run</>
+                                )}
+                            </div>
+                        </div>
+
+                        <div>
+                            <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Database Status</p>
+                            <p className={`text-xs font-bold mt-1 ${
+                                auditResult 
+                                    ? auditResult.verified 
+                                        ? "text-emerald-500" 
+                                        : "text-rose-500"
+                                    : "text-muted-foreground"
+                            }`}>
+                                {auditResult 
+                                    ? auditResult.verified 
+                                        ? `Verified ${auditResult.totalChecked} messages match PoW proofs.` 
+                                        : `Security Alert! ${auditResult.tamperedCount} discrepancies found.`
+                                    : "Run integrity audit to cross-reference database with PoW blocks."
+                                }
+                            </p>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4 pt-2">
+                            <span className="text-[10px] text-muted-foreground/80 max-w-[65%]">
+                                Scans message histories against cryptographic block hashes.
+                            </span>
+                            <button
+                                onClick={handleAudit}
+                                disabled={auditLoading}
+                                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/10 active:scale-95 cursor-pointer flex-shrink-0"
+                            >
+                                {auditLoading ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                    <Lock className="w-3.5 h-3.5" />
+                                )}
+                                {auditLoading ? "Auditing…" : "Run Audit"}
+                            </button>
+                        </div>
+
+                        <AnimatePresence mode="wait">
+                            {auditResult && !auditResult.verified && (
+                                <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: "auto" }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    className="p-2.5 rounded-xl text-[10px] font-mono font-semibold border bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400 max-h-[100px] overflow-y-auto"
+                                >
+                                    <div className="font-bold border-b border-rose-500/20 pb-1 mb-1">Mismatched Messages:</div>
+                                    {auditResult.tamperedDetails.map((d, index) => (
+                                        <div key={d.id} className="mt-1">
+                                            [{index + 1}] ID: {d.id.slice(0, 8)}... - "{d.content.slice(0, 20)}..." by {d.member}
+                                        </div>
+                                    ))}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+
                     {/* Blockchain Ledger */}
                     <div className="rounded-2xl bg-card border border-border p-5 flex flex-col gap-4 shadow-sm dark:shadow-none justify-between">
                         <div className="flex items-center justify-between pb-2 border-b border-border/60">
@@ -623,47 +736,34 @@ export default function AdminDashboard() {
                                 <Database className="w-4 h-4 text-indigo-500" />
                                 <h2 className="text-sm font-bold tracking-tight text-foreground">Ledger Integration</h2>
                             </div>
-                            <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
-                                analytics?.blockchain.connected
-                                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                    : "bg-rose-500/10 text-rose-500 border-rose-500/20"
-                            }`}>
-                                {analytics?.blockchain.connected ? (
-                                    <>
-                                        <Wifi className="w-3.5 h-3.5" />
-                                        Node Online
-                                    </>
-                                ) : (
-                                    <>
-                                        <WifiOff className="w-3.5 h-3.5" />
-                                        Node Offline
-                                    </>
-                                )}
+                            <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border bg-emerald-500/10 text-emerald-600 border-emerald-500/20`}>
+                                <Wifi className="w-3.5 h-3.5" />
+                                IndexedDB · Client-Side
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Blockchain Height</p>
+                                <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Local Chain Height</p>
                                 <p className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
-                                    {analytics?.blockchain.length || 0} blocks
+                                    {blocks.length} blocks
                                 </p>
                             </div>
                             <div>
                                 <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Pending Ledger TXs</p>
                                 <p className="text-xl font-bold font-mono text-amber-500 mt-0.5">
-                                    {analytics?.blockchain.pendingTransactions || 0} items
+                                    {pending.length} items
                                 </p>
                             </div>
                         </div>
 
                         <div className="flex items-center justify-between gap-4 pt-2">
                             <span className="text-[10px] text-muted-foreground/80 max-w-[65%]">
-                                Run POW mining to commit pending chat integrity proofs to blocks.
+                                PoW mining runs in a Web Worker — zero gas, instant, stored in IndexedDB.
                             </span>
                             <button
                                 onClick={handleMine}
-                                disabled={mineLoading || (analytics?.blockchain.pendingTransactions === 0)}
+                                disabled={mineLoading || isMining || pending.length === 0}
                                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-black text-xs font-bold transition-all shadow-md shadow-amber-500/10 active:scale-95 cursor-pointer"
                             >
                                 {mineLoading ? (

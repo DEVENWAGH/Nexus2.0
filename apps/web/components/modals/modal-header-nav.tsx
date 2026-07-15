@@ -1,7 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useModal } from "@/hooks/use-mode-store";
-import { useUser } from "@clerk/nextjs";
+import { useUser } from "@/hooks/use-auth";
 import { Settings, UserPlus, Users, PlusCircle } from "lucide-react";
 import { MemberRole } from "@repo/db";
 import { ServerWithMembersWithProfile } from "@/types/types";

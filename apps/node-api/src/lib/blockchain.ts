@@ -5,6 +5,35 @@ const BLOCKCHAIN_URL = (
     process.env.BLOCKCHAIN_URL ?? "http://127.0.0.1:5001"
 ).replace(/\/$/, "");
 
+let isMining = false;
+let mineTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function triggerAutoMine() {
+    if (isMining) return;
+    if (mineTimeout) return;
+
+    mineTimeout = setTimeout(async () => {
+        mineTimeout = null;
+        if (localBlockchain.getPending().length === 0) return;
+        isMining = true;
+        try {
+            console.log(`[Blockchain] Auto-mining ${localBlockchain.getPending().length} pending transactions...`);
+            const minedBlock = await blockchainLogger.minePending();
+            if (minedBlock) {
+                console.log(`[Blockchain] Auto-mined block #${minedBlock.index} successfully (hash: ${minedBlock.hash.slice(0, 16)}...)`);
+            }
+        } catch (err) {
+            console.error("[Blockchain] Auto-mining failed:", err);
+        } finally {
+            isMining = false;
+            // If new transactions arrived during mining, schedule again
+            if (localBlockchain.getPending().length > 0) {
+                triggerAutoMine();
+            }
+        }
+    }, 5000);
+}
+
 export const blockchainLogger = {
     async hashMessage(message: string): Promise<string> {
         return hashMessageAsync(message);
@@ -67,6 +96,9 @@ export const blockchainLogger = {
         } catch {
             console.log(`[Blockchain] External Offline - fallback to local in-repo ledger (hash=${msgHash.slice(0, 12)}...)`);
         }
+
+        // Trigger automatic Proof-of-Work mining in the background
+        triggerAutoMine();
 
         return msgHash;
     },

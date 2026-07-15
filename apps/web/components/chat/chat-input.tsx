@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -11,11 +11,15 @@ import axios from "axios";
 import { useModal } from "@/hooks/use-mode-store";
 import EmojiPicker from "../emoji-picker";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { upsertChatMessage } from "@/lib/chat-cache";
 import { useP2PChatContext } from "./p2p-chat-bridge";
 import P2PFileTransfer from "./p2p-file-transfer";
+
+import { encryptForChannel } from "@/lib/client-crypto";
+import { getOrCreateIdentity } from "@/hooks/use-identity";
+import { useBlockchain } from "@/hooks/use-blockchain";
 
 interface ChatInputProps {
     apiUrl: string;
@@ -36,6 +40,7 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
     const { sendP2P, isReady } = useP2PChatContext();
     const [selfDestruct, setSelfDestruct] = useState<"none" | "10" | "30" | "60" | "300" | "3600" | "burn">("none");
     const [showDestructMenu, setShowDestructMenu] = useState(false);
+    const { addTransaction } = useBlockchain();
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -48,9 +53,20 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
     const onSubmit = async (value: z.infer<typeof formSchema>) => {
         try {
             const prefix = selfDestruct === "burn" ? "[BURN] " : selfDestruct !== "none" ? `[TTL:${selfDestruct}] ` : "";
+            const plainText = `${prefix}${value.content}`;
+            const chatId = query.channelId ?? query.conversationId ?? "";
+
+            let finalContent = plainText;
+            try {
+                const identity = await getOrCreateIdentity();
+                finalContent = await encryptForChannel(plainText, chatId, identity.privateKey);
+            } catch (cryptoErr) {
+                console.error("Client side encryption failed, sending plaintext as fallback", cryptoErr);
+            }
+
             const interceptedValue = {
                 ...value,
-                content: `${prefix}${value.content}`
+                content: finalContent
             };
 
             const url = qs.stringifyUrl({
@@ -63,8 +79,6 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
                 },
             });
             if (response?.data) {
-                const chatId =
-                    query.channelId ?? query.conversationId ?? "";
                 if (chatId) {
                     queryClient.setQueryData(
                         [`chat:${chatId}`],
@@ -74,6 +88,24 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
                                 | undefined,
                         ) => upsertChatMessage(oldData, response.data),
                     );
+
+                    // Add integrity proof hash to client-side blockchain
+                    if (response.data.blockchainHash) {
+                        try {
+                            await addTransaction(
+                                userId || "anonymous",
+                                chatId,
+                                JSON.stringify({
+                                    msg_id: response.data.id,
+                                    msg_hash: response.data.blockchainHash,
+                                    timestamp: Date.now()
+                                }),
+                                "message-hash"
+                            );
+                        } catch (bcErr) {
+                            console.error("Failed to log transaction to local blockchain:", bcErr);
+                        }
+                    }
                 }
                 if (isReady && value.content) {
                     void sendP2P(`${prefix}${value.content}`, response.data.id);
@@ -85,6 +117,7 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
             console.error(err);
         }
     };
+
 
     return (
         <Form {...form}>
@@ -109,7 +142,12 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
                                         >
                                             <Plus className="h-5 w-5 transition-transform group-hover/upload:rotate-90" />
                                         </button>
-                                        <P2PFileTransfer />
+                                        {type === "conversation" && (
+                                            <P2PFileTransfer
+                                                apiUrl={apiUrl}
+                                                query={query}
+                                            />
+                                        )}
                                         <input
                                             type="text"
                                             autoComplete="off"
@@ -147,7 +185,7 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
                                                             { label: "1 minute", value: "60" },
                                                             { label: "5 minutes", value: "300" },
                                                             { label: "1 hour", value: "3600" },
-                                                            { label: "🔥 Burn after read", value: "burn" }
+                                                            { label: "ðŸ”¥ Burn after read", value: "burn" }
                                                         ].map((opt) => (
                                                             <button
                                                                 key={opt.value}

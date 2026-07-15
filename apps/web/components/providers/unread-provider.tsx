@@ -1,9 +1,13 @@
-"use client";
+﻿"use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { useSocket } from "./socket-provider";
 import { toast } from "sonner";
+import { useUser } from "@/hooks/use-auth";
+import { isClientEncrypted, decryptForChannel } from "@/lib/client-crypto";
+import { getOrCreateIdentity } from "@/hooks/use-identity";
+
 
 export type UnreadCounts = {
     [chatId: string]: {
@@ -90,6 +94,7 @@ const showDesktopNotification = (title: string, body: string, onClickUrl?: strin
 
 export const UnreadProvider = ({ children }: { children: React.ReactNode }) => {
     const { socket } = useSocket();
+    const { user } = useUser();
     const params = useParams();
     const pathname = usePathname();
     const [unreadCounts, setUnreadCounts] = useState<UnreadCounts>({});
@@ -147,9 +152,19 @@ export const UnreadProvider = ({ children }: { children: React.ReactNode }) => {
         if (!socket) return;
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const handleNewMessage = (data: any) => {
+        const handleNewMessage = async (data: any) => {
             const { type, serverId, channelId, conversationId, message } = data;
             
+            if (message && message.content && isClientEncrypted(message.content)) {
+                try {
+                    const decryptId = type === "channel" ? channelId : conversationId;
+                    const identity = await getOrCreateIdentity();
+                    message.content = await decryptForChannel(message.content, decryptId, identity.privateKey);
+                } catch (e) {
+                    console.error("Failed to decrypt notification message:", e);
+                }
+            }
+
             const activeChannelId = params?.channelId as string | undefined;
             const activeConversationId = params?.conversationId as string | undefined;
 
@@ -168,17 +183,39 @@ export const UnreadProvider = ({ children }: { children: React.ReactNode }) => {
                 shouldIncrement = activeConversationId !== senderMemberId;
             }
 
-            if (shouldIncrement && targetId) {
-                // Update unread count state and save
-                const current = unreadCounts[targetId]?.count ?? 0;
-                const next = {
-                    ...unreadCounts,
-                    [targetId]: {
-                        count: current + 1,
-                        serverId: serverId || null,
-                    },
-                };
-                saveCounts(next);
+            // Check if the current user is mentioned in the channel message content
+            let isMentioned = false;
+            if (user && type === "channel" && message.content) {
+                const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim().toLowerCase();
+                const firstName = (user.firstName || "").toLowerCase();
+                const username = (user.username || "").toLowerCase();
+                const textLower = message.content.toLowerCase();
+
+                isMentioned = 
+                    (fullName && textLower.includes(`@${fullName}`)) ||
+                    (firstName && new RegExp(`@\\b${firstName}\\b`, 'i').test(message.content)) ||
+                    (username && new RegExp(`@\\b${username}\\b`, 'i').test(message.content));
+            }
+
+
+            // Trigger alert if:
+            // 1. We are in a different channel/conversation (shouldIncrement is true)
+            // 2. OR the user is mentioned and the page is hidden/unfocused
+            const shouldAlert = shouldIncrement || (isMentioned && document.visibilityState !== "visible");
+
+            if (shouldAlert && targetId) {
+                if (shouldIncrement) {
+                    // Update unread count state and save
+                    const current = unreadCounts[targetId]?.count ?? 0;
+                    const next = {
+                        ...unreadCounts,
+                        [targetId]: {
+                            count: current + 1,
+                            serverId: serverId || null,
+                        },
+                    };
+                    saveCounts(next);
+                }
 
                 // Play audio chime
                 playNotificationSound();
@@ -187,9 +224,13 @@ export const UnreadProvider = ({ children }: { children: React.ReactNode }) => {
                 const senderName = message.member.profile.name;
                 const messageText = message.content || "Sent an attachment";
                 
-                const title = type === "channel" 
+                let title = type === "channel" 
                     ? `New message in #${senderName}` 
                     : `Message from ${senderName}`;
+
+                if (isMentioned) {
+                    title = `${senderName} mentioned you in #${senderName}`;
+                }
                 
                 const clickUrl = type === "channel"
                     ? `/servers/${serverId}/channels/${channelId}`

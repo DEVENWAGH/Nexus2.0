@@ -27,11 +27,14 @@ export const IncomingCallModal = () => {
 
             if (remaining === 0) {
                 clearInterval(interval);
+                if (callState.callId) {
+                    rejectCall(callState.callId);
+                }
             }
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [callState.initiatedAt, callState.isIncoming]);
+    }, [callState.initiatedAt, callState.isIncoming, callState.callId, rejectCall]);
 
     const isOpen = callState.isIncoming && callState.callId !== null;
 
@@ -61,9 +64,7 @@ export const IncomingCallModal = () => {
                                 {callState.callerName}
                             </p>
                             <p className="text-sm text-muted-foreground">
-                                {callState.callType === "video"
-                                    ? "Video call"
-                                    : "Voice call"}
+                                Voice call
                             </p>
                             <p className="text-xs font-bold text-rose-500 mt-1">
                                 Ends in {timeLeft}s

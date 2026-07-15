@@ -1,0 +1,11 @@
+---
+description: Nexus project defaults — design system, skills, and stack conventions
+alwaysApply: true
+---
+
+# Nexus project
+
+- UI must follow `DESIGN.md` (Discord-inspired indigo/Blurple system).
+- Prefer project skills under `.agents/skills/`: `nextjs`, `tailwind-4-docs`, `web-design-guidelines`, `framer-motion-animator`, `gsap-framer-scroll-animation`, `tanstack-query-best-practices`.
+- Next.js app is `apps/web` (App Router, Turbopack). Edge network boundary file is `proxy.ts` (not `middleware.ts`).
+- Do not invent alternate brand colors or generic purple/cream AI aesthetics that conflict with DESIGN.md.

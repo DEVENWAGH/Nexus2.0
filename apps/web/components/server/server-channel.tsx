@@ -50,22 +50,27 @@ const ServerChannel = ({ channel, server, role }: ServerChannelProps) => {
     useEffect(() => {
         if (!isVoice) return;
 
+        const signalingBase = (process.env.NEXT_PUBLIC_SIGNALING_URL ?? "ws://localhost:3001")
+            .replace(/^ws/, "http");
+
         const fetchParticipants = async () => {
             try {
-                const resp = await fetch(`/api/livekit/participants?room=${channel.id}`);
+                const resp = await fetch(`${signalingBase}/`);
                 if (resp.ok) {
-                    const data = await resp.json();
-                    setActiveParticipants(data.participants || []);
+                    // Signaling server returns { rooms, peers } — no per-room detail available
+                    // We just clear participants; real presence is handled inside the P2P room
+                    setActiveParticipants([]);
                 }
-            } catch (e) {
-                console.error("Failed to fetch active participants in sidebar:", e);
+            } catch {
+                // Silently ignore — signaling server may not be running in dev
             }
         };
 
         fetchParticipants();
-        const interval = setInterval(fetchParticipants, 10000);
+        const interval = setInterval(fetchParticipants, 30_000);
         return () => clearInterval(interval);
     }, [channel.id, isVoice]);
+
 
     const unreadCount = getUnreadCount(channel.id);
     const isUnread = unreadCount > 0;

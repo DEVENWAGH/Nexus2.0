@@ -118,6 +118,7 @@ const ChatMessages = ({
                                         key={message.id}
                                         id={message.id}
                                         content={message.content}
+                                        chatId={chatId}
                                         currentMember={member}
                                         fileUrl={message.fileUrl}
                                         deleted={message.deleted}

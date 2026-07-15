@@ -220,7 +220,7 @@ erDiagram
 ### 1. Installation
 Clone the repository and install workspace dependencies:
 ```bash
-git clone https://github.com/ErArbazAnsari/nexus-community.git
+git clone https://github.com/username/nexus-community.git
 cd nexus-community
 yarn install
 ```

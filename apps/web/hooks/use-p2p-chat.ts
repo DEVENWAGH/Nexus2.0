@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { P2PMesh, type P2PChatMessage } from "@repo/p2p";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
 
 const SIGNALING_URL =
     process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:3001";

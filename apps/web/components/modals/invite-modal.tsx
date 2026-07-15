@@ -11,7 +11,7 @@ import { useModal } from "@/hooks/use-mode-store";
 import { Label } from "../ui/label";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
-import { Copy, Loader2 } from "lucide-react";
+import { Copy, Loader2, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useOrigin } from "@/hooks/use-origin";
 import { useState, useEffect } from "react";
@@ -23,6 +23,8 @@ const InviteModal = () => {
     const { isOpen, onClose, type, data } = useModal();
     const [inviteCode, setInviteCode] = useState("");
     const [regenerating, setRegenerating] = useState(false);
+    const [email, setEmail] = useState("");
+    const [sendingEmail, setSendingEmail] = useState(false);
     const origin = useOrigin();
 
     // Sync inviteCode state when modal opens or server data changes
@@ -55,6 +57,24 @@ const InviteModal = () => {
             toast.error("Failed to regenerate invite code. Please try again.");
         } finally {
             setRegenerating(false);
+        }
+    };
+
+    const onSendEmailInvite = async () => {
+        if (!email) {
+            toast.error("Please enter a valid email address.");
+            return;
+        }
+        try {
+            setSendingEmail(true);
+            await axios.post(`/api/servers/${data.server?.id}/invite/email`, { email });
+            toast.success(`Invite sent successfully to ${email}!`);
+            setEmail("");
+        } catch (error) {
+            console.error("Failed to send email invite:", error);
+            toast.error("Failed to send email invite. Please check SMTP settings.");
+        } finally {
+            setSendingEmail(false);
         }
     };
     return (
@@ -92,6 +112,32 @@ const InviteModal = () => {
                         {regenerating && (
                             <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />
                         )}
+                    </div>
+
+                    <div className="border-t border-zinc-200 dark:border-zinc-800 my-4" />
+
+                    <Label>Send Invite via Email</Label>
+                    <div className="flex items-center mt-2 gap-x-2">
+                        <Input
+                            type="email"
+                            placeholder="Enter user email..."
+                            className="focus-visible:ring-0 focus-visible:ring-offset-0"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            disabled={sendingEmail}
+                        />
+                        <Button 
+                            onClick={onSendEmailInvite} 
+                            disabled={sendingEmail || !email}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center gap-1.5"
+                        >
+                            {sendingEmail ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <Mail className="h-4 w-4" />
+                            )}
+                            Send
+                        </Button>
                     </div>
                 </div>
             </DialogContent>

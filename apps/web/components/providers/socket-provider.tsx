@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 import { createContext, useContext, useEffect, useState } from "react";
 import { io, type Socket } from "socket.io-client";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
+import { useParams } from "next/navigation";
 
 type SocketContentType = {
     socket: Socket | null;
@@ -16,8 +17,6 @@ const socketContext = createContext<SocketContentType>({
 export const useSocket = () => {
     return useContext(socketContext);
 };
-
-import { useParams } from "next/navigation";
 
 export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     const [socket, setSocket] = useState<Socket | null>(null);
@@ -41,31 +40,55 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         const socketInstance = io(socketUrl, {
             path: "/api/socket/io",
             addTrailingSlash: false,
+            transports: ["websocket", "polling"],
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
         });
 
-        socketInstance.on("connect", () => {
+        setSocket(socketInstance);
+
+        const onConnect = () => {
             setIsConnected(true);
-            setSocket(socketInstance);
-        });
+            const id =
+                userId ||
+                (typeof window !== "undefined"
+                    ? localStorage.getItem("nexus-user-id")
+                    : null);
+            if (id) {
+                socketInstance.emit("identify", { userId: id, serverId });
+            }
+        };
+
+        socketInstance.on("connect", onConnect);
 
         socketInstance.on("disconnect", () => {
             setIsConnected(false);
-            setSocket(null);
+            // Keep the socket instance so call/voice listeners survive brief drops.
         });
 
         socketInstance.on("connect_error", () => {
             setIsConnected(false);
-            setSocket(null);
         });
 
         return () => {
+            socketInstance.off("connect", onConnect);
             socketInstance.disconnect();
+            setSocket(null);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
         if (socket && userId) {
-            socket.emit("identify", { userId, serverId });
+            const identify = () => {
+                socket.emit("identify", { userId, serverId });
+            };
+            identify();
+            socket.on("connect", identify);
+            return () => {
+                socket.off("connect", identify);
+            };
         }
     }, [socket, userId, serverId]);
 

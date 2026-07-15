@@ -14,6 +14,8 @@ import MessageFileModal from "../modals/message-file-modal";
 import { IncomingCallModal } from "../modals/incoming-call-modal";
 import { OutgoingCallModal } from "../modals/outgoing-call-modal";
 import StegModal from "../modals/steg-modal";
+import EditProfileModal from "../modals/edit-profile-modal";
+
 
 export const ModalProvider = () => {
     return (
@@ -32,6 +34,8 @@ export const ModalProvider = () => {
             <IncomingCallModal />
             <OutgoingCallModal />
             <StegModal />
+            <EditProfileModal />
         </>
     );
 };
+

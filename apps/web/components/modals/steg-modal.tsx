@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
-import axios from "axios";
 import qs from "query-string";
 import { KeyRound, Lock, Unlock, Send, ShieldCheck, Music, Video, FileText, Image as ImageIcon } from "lucide-react";
+import { encodeSteg, decodeStegFromUrl, detectStegMediaType } from "@/lib/client-steg";
 import {
     Dialog,
     DialogContent,
@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { useModal } from "@/hooks/use-mode-store";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
@@ -25,28 +25,20 @@ import { uploadMessageFile } from "@/lib/steg-utils";
 
 type StegFileType = "image" | "audio" | "video" | "pdf";
 
-/** Map file types to their steganography API endpoints. */
-const STEG_ENDPOINTS: Record<StegFileType, { encode: string; decode: string; urlField: string }> = {
-    image: {
-        encode: "/api/steganography/encode",
-        decode: "/api/steganography/decode",
-        urlField: "image_url",
-    },
-    audio: {
-        encode: "/api/steganography/encode-audio",
-        decode: "/api/steganography/decode-audio",
-        urlField: "audio_url",
-    },
-    video: {
-        encode: "/api/steganography/encode-video",
-        decode: "/api/steganography/decode-video",
-        urlField: "video_url",
-    },
-    pdf: {
-        encode: "/api/steganography/encode-pdf",
-        decode: "/api/steganography/decode-pdf",
-        urlField: "pdf_url",
-    },
+/** MIME types for each steganography file type */
+const STEG_MIME: Record<StegFileType, string> = {
+    image: "image/png",
+    audio: "audio/mpeg",
+    video: "video/mp4",
+    pdf: "application/pdf",
+};
+
+/** File extensions for re-uploading encoded files */
+const STEG_EXT: Record<StegFileType, string> = {
+    image: "png",
+    audio: "mp3",
+    video: "mp4",
+    pdf: "pdf",
 };
 
 /** Labels & icons for each file type. */
@@ -93,7 +85,6 @@ const StegModal = () => {
     const fileType: StegFileType = data?.stegFileType ?? "image";
     const fileUrl = data?.fileUrl ?? data?.imageUrl;
     const meta = FILE_TYPE_META[fileType];
-    const endpoints = STEG_ENDPOINTS[fileType];
 
     const resetState = useCallback(() => {
         setSecretText("");
@@ -116,30 +107,28 @@ const StegModal = () => {
         setDecodedText(null);
         setPasswordRequired(false);
         try {
-            const res = await axios.post(endpoints.decode, {
-                [endpoints.urlField]: fileUrl,
-                ...(decodePassword.trim() ? { password: decodePassword.trim() } : {}),
-            });
+            const mimeType = STEG_MIME[fileType];
+            const result = await decodeStegFromUrl(
+                fileUrl,
+                mimeType,
+                decodePassword.trim() || undefined,
+            );
 
-            if (res.data?.password_required) {
+            if (result.passwordRequired) {
                 setPasswordRequired(true);
-                setDecodedText(null);
                 return;
             }
-
-            if (res.data?.found && res.data?.secret_text) {
-                setDecodedText(res.data.secret_text);
+            if (result.found && result.secretText) {
+                setDecodedText(result.secretText);
             } else {
                 setDecodedText("__none__");
             }
         } catch (e) {
-            const msg =
-                (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
-            toast.error(msg || "Decode failed. Is the Node API running?");
+            toast.error((e as Error).message || "Decode failed (client-side).");
         } finally {
             setIsDecoding(false);
         }
-    }, [fileUrl, decodePassword, endpoints]);
+    }, [fileUrl, decodePassword, fileType]);
 
     // Auto-extract hidden message when opening in decode mode
     useEffect(() => {
@@ -156,21 +145,29 @@ const StegModal = () => {
         setIsEncoding(true);
         setEncodedDataB64(null);
         try {
-            const res = await axios.post(endpoints.encode, {
-                [endpoints.urlField]: fileUrl,
-                secret_text: secretText.trim(),
-                ...(encodePassword.trim() ? { password: encodePassword.trim() } : {}),
-            });
-            const encoded = res.data?.encoded_image ?? res.data?.encoded_b64;
-            if (encoded) {
-                setEncodedDataB64(encoded);
-                toast.success(`Secret hidden in ${meta.label.toLowerCase()}! Send it when ready.`);
-            } else {
-                toast.error("Encode succeeded but no data was returned.");
-            }
+            // Fetch the source file
+            const resp = await fetch(fileUrl);
+            if (!resp.ok) throw new Error(`Failed to fetch source file: ${resp.status}`);
+            const buffer = await resp.arrayBuffer();
+            const mimeType = STEG_MIME[fileType];
+            const sourceFile = new File([buffer], `source.${STEG_EXT[fileType]}`, { type: mimeType });
+
+            // Encode client-side in Web Worker
+            const encodedBlob = await encodeSteg(
+                sourceFile,
+                secretText.trim(),
+                encodePassword.trim() || undefined,
+            );
+
+            // Convert blob â†’ base64 for the send handler
+            const arrayBuf = await encodedBlob.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuf);
+            let binary = "";
+            for (const b of bytes) binary += String.fromCharCode(b);
+            setEncodedDataB64(btoa(binary));
+            toast.success(`Secret hidden in ${meta.label.toLowerCase()}! Send it when ready.`);
         } catch (e: unknown) {
-            const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
-            toast.error(msg || "Encode failed.");
+            toast.error((e as Error).message || "Encode failed (client-side).");
         } finally {
             setIsEncoding(false);
         }
@@ -218,23 +215,23 @@ const StegModal = () => {
                 uploadedUrl = await uploadMessageFile(file);
             }
 
-            await axios.post(
-                url,
-                {
-                    fileUrl: uploadedUrl,
-                    content: "",
+            const resp = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(userId ? { "X-User-Id": userId } : {}),
                 },
-                {
-                    headers: { ...(userId ? { "X-User-Id": userId } : {}) },
-                },
-            );
+                body: JSON.stringify({ fileUrl: uploadedUrl, content: "" }),
+            });
+            if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({})) as { error?: string };
+                throw new Error(errData.error ?? `HTTP ${resp.status}`);
+            }
 
             toast.success(`Steganography ${meta.label.toLowerCase()} sent!`);
             handleClose();
         } catch (e) {
-            const msg =
-                (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
-            toast.error(msg || `Failed to send encoded ${meta.label.toLowerCase()}.`);
+            toast.error((e as Error).message || `Failed to send encoded ${meta.label.toLowerCase()}.`);
         } finally {
             setIsSending(false);
         }
@@ -246,7 +243,7 @@ const StegModal = () => {
                 <DialogHeader className="pt-6 px-6">
                     <DialogTitle className="text-xl font-bold flex items-center gap-2">
                         <Lock className="h-5 w-5 text-indigo-500" />
-                        Hidden Message — Steganography
+                        Hidden Message â€” Steganography
                     </DialogTitle>
                     <DialogDescription className="text-muted-foreground text-sm">
                         Hide or reveal secret text inside this {meta.label.toLowerCase()} using {meta.technique.toLowerCase()}.
@@ -254,7 +251,7 @@ const StegModal = () => {
                 </DialogHeader>
 
                 <div className="px-6 pb-6 space-y-4">
-                    {/* ── File Preview ── */}
+                    {/* â”€â”€ File Preview â”€â”€ */}
                     {fileUrl && (
                         <div className="rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 relative bg-zinc-100 dark:bg-zinc-800">
                             {fileType === "image" ? (
@@ -295,13 +292,13 @@ const StegModal = () => {
                         </div>
                     )}
 
-                    {/* ── File type badge ── */}
+                    {/* â”€â”€ File type badge â”€â”€ */}
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         {meta.icon}
-                        <span>{meta.label} · {meta.technique}</span>
+                        <span>{meta.label} Â· {meta.technique}</span>
                     </div>
 
-                    {/* ── Mode toggle ── */}
+                    {/* â”€â”€ Mode toggle â”€â”€ */}
                     <div className="flex rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
                         <button
                             type="button"
@@ -339,7 +336,7 @@ const StegModal = () => {
                         </button>
                     </div>
 
-                    {/* ── Decode mode ── */}
+                    {/* â”€â”€ Decode mode â”€â”€ */}
                     {mode === "decode" && (
                         <div className="space-y-3">
                             {(passwordRequired || decodePassword) && (
@@ -404,7 +401,7 @@ const StegModal = () => {
                         </div>
                     )}
 
-                    {/* ── Encode mode ── */}
+                    {/* â”€â”€ Encode mode â”€â”€ */}
                     {mode === "encode" && (
                         <div className="space-y-3">
                             <div>
@@ -419,7 +416,7 @@ const StegModal = () => {
                                     className="text-sm"
                                 />
                                 <p className="text-[11px] text-muted-foreground mt-1">
-                                    {secretText.length}/500 characters · Hidden in {meta.label.toLowerCase()} via {meta.technique.toLowerCase()}
+                                    {secretText.length}/500 characters Â· Hidden in {meta.label.toLowerCase()} via {meta.technique.toLowerCase()}
                                 </p>
                             </div>
 

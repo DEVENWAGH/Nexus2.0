@@ -48,7 +48,7 @@ export class P2PMesh {
             file: File;
             resolve: () => void;
             reject: (err: any) => void;
-            ackReceived: () => void;
+            onAck: (index: number, fromPeerId: string) => void;
         }
     >();
 
@@ -127,8 +127,11 @@ export class P2PMesh {
         }
     }
 
-    async sendFile(file: File, onProgress?: (progress: number) => void): Promise<void> {
-        const fileId = crypto.randomUUID();
+    async sendFile(
+        file: File,
+        fileId: string = crypto.randomUUID(),
+        onProgress?: (progress: number) => void,
+    ): Promise<string> {
         const chunkSize = 32768; // 32KBsafe WebRTC chunk size
         const totalChunks = Math.ceil(file.size / chunkSize);
 
@@ -156,20 +159,6 @@ export class P2PMesh {
             }
         }
 
-        let ackPromiseResolve: (() => void) | null = null;
-        const waitForAck = () => new Promise<void>((res) => {
-            ackPromiseResolve = res;
-        });
-
-        this.activeTransfers.set(fileId, {
-            file,
-            resolve: () => {},
-            reject: () => {},
-            ackReceived: () => {
-                ackPromiseResolve?.();
-            }
-        });
-
         for (let i = 0; i < totalChunks; i++) {
             const { buffer } = await getFileChunk(file, i, chunkSize);
             const chunkHash = await computeBufferHash(buffer);
@@ -194,18 +183,51 @@ export class P2PMesh {
                 payload: JSON.stringify(chunkPayload),
             });
 
-            let activePeers = 0;
-            for (const [, conn] of this.peers) {
+            // Track active peers for this chunk
+            const activePeerIds = new Set<string>();
+            for (const [peerId, conn] of this.peers) {
                 if (conn.dc?.readyState === "open") {
-                    conn.dc.send(chunkEnvelope);
-                    activePeers++;
+                    activePeerIds.add(peerId);
                 }
             }
 
-            if (activePeers > 0) {
-                // Wait for ACK with 3s fallback timeout
+            if (activePeerIds.size > 0) {
+                const receivedFrom = new Set<string>();
+                let resolveAck: () => void;
+                const ackPromise = new Promise<void>((resolve) => {
+                    resolveAck = resolve;
+                });
+
+                this.activeTransfers.set(fileId, {
+                    file,
+                    resolve: () => {},
+                    reject: () => {},
+                    onAck: (index: number, fromPeerId: string) => {
+                        if (index === i) {
+                            receivedFrom.add(fromPeerId);
+                            // Filter active peer IDs by currently open data channels
+                            const stillActivePeers = [...activePeerIds].filter(pid =>
+                                this.peers.get(pid)?.dc?.readyState === "open"
+                            );
+                            const hasAllAcks = stillActivePeers.every(pid => receivedFrom.has(pid));
+                            if (hasAllAcks) {
+                                resolveAck();
+                            }
+                        }
+                    }
+                });
+
+                // Send the chunk to all active peers
+                for (const peerId of activePeerIds) {
+                    const conn = this.peers.get(peerId);
+                    if (conn?.dc?.readyState === "open") {
+                        conn.dc.send(chunkEnvelope);
+                    }
+                }
+
+                // Wait for all ACKs or 3s fallback timeout
                 await Promise.race([
-                    waitForAck(),
+                    ackPromise,
                     new Promise((resolve) => setTimeout(resolve, 3000)),
                 ]);
             }
@@ -214,6 +236,7 @@ export class P2PMesh {
         }
 
         this.activeTransfers.delete(fileId);
+        return fileId;
     }
 
     leave(): void {
@@ -451,7 +474,7 @@ export class P2PMesh {
 
                     if (buffer.isComplete) {
                         const blob = buffer.reconstruct();
-                        const name = (buffer as any).metadata.name;
+                        const name = buffer.metadata.name;
                         this.emit("file-complete", payload.fileId, blob, name, fromPeerId);
                         this.fileBuffers.delete(payload.fileId);
                     }
@@ -463,7 +486,7 @@ export class P2PMesh {
                 const payload = JSON.parse(envelope.payload) as { fileId: string; index: number };
                 const transfer = this.activeTransfers.get(payload.fileId);
                 if (transfer) {
-                    transfer.ackReceived();
+                    transfer.onAck(payload.index, fromPeerId);
                 }
                 return;
             }

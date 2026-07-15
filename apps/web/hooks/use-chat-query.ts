@@ -1,6 +1,6 @@
-import qs from "query-string";
+﻿import qs from "query-string";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
 
 import { useSocket } from "@/components/providers/socket-provider";
 

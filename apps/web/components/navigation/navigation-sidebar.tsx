@@ -73,13 +73,8 @@ const NavigationSidebar = async () => {
                         </Link>
                     </Button>
 
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        className="hover:bg-primary/5 rounded-2xl transition-all active:scale-90 opacity-80 hover:opacity-100"
-                    >
-                        <ClerkUserButton />
-                    </Button>
+                    <ClerkUserButton />
+
                 </div>
             </div>
         </nav>

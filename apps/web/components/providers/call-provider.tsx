@@ -7,7 +7,7 @@ import {
     useEffect,
     useState,
 } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/hooks/use-auth";
 import { useSocket } from "@/components/providers/socket-provider";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -47,7 +47,7 @@ export interface CallContextType {
     ) => void;
     acceptCall: (callId: string) => void;
     rejectCall: (callId: string) => void;
-    cancelCall: (callId: string) => void;
+    cancelCall: (callId?: string) => void;
     endCall: (callId?: string) => void;
     clearCallState: () => void;
 }
@@ -95,6 +95,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
                 conversationId,
                 serverId,
                 callType,
+                initiatedAt: Date.now(),
             });
 
             socket.emit("call:initiate", {
@@ -137,9 +138,9 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
         [socket],
     );
 
-    // Cancel outgoing call
+    // Cancel outgoing call (callId optional — server can resolve by user)
     const cancelCall = useCallback(
-        (callId: string) => {
+        (callId?: string) => {
             if (!socket) return;
             socket.emit("call:cancel", { callId });
             setCallState({
@@ -251,14 +252,16 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
                         ? data.recipientMemberId
                         : data.callerMemberId;
 
+                // Always land both parties in the same P2P room (conversation.id)
+                // via member-id conversation routes with ?audio=true
                 const targetPath = data.serverId
-                    ? `/servers/${data.serverId}/conversation/${otherMemberIdForRoute}?video=true`
-                    : `${pathname}?video=true`;
+                    ? `/servers/${data.serverId}/conversation/${otherMemberIdForRoute}?audio=true`
+                    : `${pathname}${pathname.includes("?") ? "&" : "?"}audio=true`;
 
-                const isVideo = searchParams?.get("video");
+                const isAudio = searchParams?.get("audio") === "true";
                 const targetBase = targetPath.split("?")[0];
 
-                if (pathname !== targetBase || !isVideo) {
+                if (pathname !== targetBase || !isAudio) {
                     router.push(targetPath);
                 }
             },
@@ -286,12 +289,13 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
             // Check if we are on client side
             if (typeof window !== "undefined") {
                 const newUrl = new URL(window.location.href);
-                if (newUrl.searchParams.get("video") === "true") {
-                    newUrl.searchParams.delete("video");
+                if (newUrl.searchParams.get("audio") === "true") {
+                    newUrl.searchParams.delete("audio");
                     router.push(newUrl.pathname + newUrl.search);
                 }
             }
         });
+
 
         // User offline
         socket.on("call:user-offline", () => {
@@ -323,7 +327,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
             socket.off("call:user-busy");
             socket.off("call:error");
         };
-    }, [socket, router, pathname, clearCallState, userId]);
+    }, [socket, router, pathname, searchParams, clearCallState, userId]);
 
     return (
         <CallContext.Provider
