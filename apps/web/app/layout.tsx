@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Inter, Geist_Mono } from "next/font/google";
-import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
-import { extractRouterConfig } from "uploadthing/server";
+
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { LanguageProvider } from "@/components/providers/language-context";
 import { Toaster } from "@/components/ui/sonner";
-import { ourFileRouter } from "@/app/api/uploadthing/core";
+
 
 export const dynamic = "force-dynamic";
 
@@ -42,9 +41,7 @@ export default function RootLayout({
                 className={`${spaceGrotesk.variable} ${inter.variable} ${geistMono.variable} antialiased`}
                 suppressHydrationWarning
             >
-                <NextSSRPlugin
-                    routerConfig={extractRouterConfig(ourFileRouter)}
-                />
+
                 <ThemeProvider
                     attribute="class"
                     defaultTheme="dark"

@@ -265,7 +265,7 @@ const MessageFileModal = () => {
                         throw new Error("Encode response missing file data");
                     }
 
-                    // Convert base64 to File and upload via UploadThing
+                    // Convert base64 to File and upload via Pinata/IPFS
                     const mimeTypes: Record<string, string> = {
                         audio: localFile?.type || "audio/mpeg",
                         video: localFile?.type || "video/mp4",

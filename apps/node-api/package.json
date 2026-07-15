@@ -11,6 +11,7 @@
     },
     "dependencies": {
         "@hono/node-server": "^1.14.3",
+        "@noble/hashes": "^2.2.0",
         "@repo/db": "workspace:*",
         "@repo/p2p": "workspace:*",
         "@types/bs58": "^5.0.0",
@@ -21,8 +22,7 @@
         "jimp": "^1.6.0",
         "node-cron": "^4.5.0",
         "nodemailer": "^9.0.3",
-        "socket.io": "^4.8.3",
-        "uploadthing": "^7.7.4"
+        "socket.io": "^4.8.3"
     },
     "devDependencies": {
         "@repo/eslint-config": "workspace:*",

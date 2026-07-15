@@ -1,4 +1,4 @@
-import { uploadFiles } from "@/lib/uploadthing";
+import { uploadFiles } from "@/lib/upload";
 import {
     formatFileSize,
     MESSAGE_FILE_IMAGE_MAX_BYTES,

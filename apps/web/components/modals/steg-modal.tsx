@@ -191,7 +191,7 @@ const StegModal = () => {
                 // Image: upload as PNG via the existing steg image uploader
                 uploadedUrl = await uploadEncodedStegImage(encodedDataB64);
             } else {
-                // Audio/video/pdf: convert base64 to file and upload via UploadThing
+                // Audio/video/pdf: convert base64 to file and upload via Pinata/IPFS
                 const mimeTypes: Record<string, string> = {
                     audio: "audio/mpeg",
                     video: "video/mp4",

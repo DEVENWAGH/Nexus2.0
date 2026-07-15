@@ -1,7 +1,7 @@
 {
     "ui": "tui",
     "globalEnv": [
-        "DATABASE_URL",
+        "ORBITDB_API_URL",
         "NEXT_PUBLIC_SOCKET_URL",
         "NEXT_PUBLIC_SIGNALING_URL",
         "SIGNALING_PORT",
@@ -10,7 +10,8 @@
         "NEXT_PUBLIC_LIVEKIT_URL",
         "LIVEKIT_API_KEY",
         "LIVEKIT_API_SECRET",
-        "UPLOADTHING_TOKEN",
+        "PINATA_API_KEY",
+        "PINATA_API_SECRET",
         "NODE_ENV"
     ],
     "tasks": {
@@ -31,25 +32,7 @@
             "outputs": [
                 "node_modules/.prisma/**",
                 "packages/db/node_modules/.prisma/**"
-            ],
-            "env": ["DATABASE_URL"]
-        },
-        "db:push": {
-            "cache": false,
-            "env": ["DATABASE_URL"]
-        },
-        "db:migrate": {
-            "cache": false,
-            "env": ["DATABASE_URL"]
-        },
-        "db:migrate_dev": {
-            "cache": false,
-            "env": ["DATABASE_URL"]
-        },
-        "db:studio": {
-            "cache": false,
-            "persistent": true,
-            "env": ["DATABASE_URL"]
+            ]
         }
     }
 }

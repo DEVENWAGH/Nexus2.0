@@ -1,14 +1,10 @@
-import { defineConfig, env } from "prisma/config";
-import { config } from "dotenv";
+import { defineConfig } from "prisma/config";
 
-config({ path: "../../.env" });
-
+// Schema is used only for Prisma Client type generation.
+// Runtime data access goes through the OrbitDB HTTP API (see src/prisma.ts).
 export default defineConfig({
     schema: "./prisma/schema.prisma",
-    migrations: {
-        path: "./prisma/migrations",
-    },
     datasource: {
-        url: env("DATABASE_URL"),
+        url: "postgresql://unused@localhost:5432/unused",
     },
 });

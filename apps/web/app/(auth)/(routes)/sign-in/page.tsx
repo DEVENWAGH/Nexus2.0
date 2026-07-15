@@ -81,7 +81,7 @@ export default function SignInPage() {
             if (verifyRes.data.success) {
                 localStorage.setItem("nexus-user-id", address);
                 toast.success("Wallet authentication successful!");
-                router.push("/");
+                router.push("/setup");
                 router.refresh();
             } else {
                 toast.error("Authentication verification failed.");
@@ -129,7 +129,7 @@ export default function SignInPage() {
             if (verifyRes.data.success) {
                 localStorage.setItem("nexus-user-id", address);
                 toast.success("Phantom wallet authentication successful!");
-                router.push("/");
+                router.push("/setup");
                 router.refresh();
             } else {
                 toast.error("Authentication verification failed.");

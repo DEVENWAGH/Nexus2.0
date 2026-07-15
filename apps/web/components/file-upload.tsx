@@ -1,7 +1,5 @@
 "use client";
 import React from "react";
-import { UploadButton } from "@/lib/uploadthing";
-import "@uploadthing/react";
 import { FileIcon, X, Upload as UploadIcon, FileText, Image as ImageIcon, Video, Music } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
@@ -53,13 +51,15 @@ interface fileUploadProp {
     value: string;
     endpoint: "imageUploader" | "messageFile";
     onFileSelect?: (file: File | null) => void;
-    /** Keep image files local until send — skips UploadThing on select (message attachments with steg). */
+    /** Keep image files local until send — skips upload on select (message attachments with steg). */
     deferUploadForImages?: boolean;
 }
 
 const FileUpload = ({ onChange, value, endpoint, onFileSelect, deferUploadForImages }: fileUploadProp) => {
     const fileType = value?.split(".").pop();
     const [imgError, setImgError] = React.useState(false);
+    const [isUploading, setIsUploading] = React.useState(false);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const getFileIcon = (url: string) => {
         const ext = url.split(".").pop()?.toLowerCase();
@@ -67,6 +67,58 @@ const FileUpload = ({ onChange, value, endpoint, onFileSelect, deferUploadForIma
         if (["mp4", "webm", "mov"].includes(ext || "")) return <Video className="h-12 w-12 text-primary" />;
         if (["mp3", "wav", "aac"].includes(ext || "")) return <Music className="h-12 w-12 text-primary" />;
         return <FileIcon className="h-12 w-12 text-muted-foreground" />;
+    };
+
+    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const sizeError = validateFileSize(file, endpoint);
+        if (sizeError) {
+            toast.error(sizeError);
+            return;
+        }
+
+        onFileSelect?.(file);
+
+        if (deferUploadForImages && file.type.startsWith("image/")) {
+            onChange(URL.createObjectURL(file));
+            return;
+        }
+
+        setIsUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("endpoint", endpoint);
+
+            const response = await fetch("/api/upload", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(errText || "Failed to upload file");
+            }
+
+            const data = await response.json();
+            const uploadedUrl = data.url;
+            if (!uploadedUrl) {
+                toast.error("Upload finished but no file URL was returned.");
+                return;
+            }
+            onChange(uploadedUrl);
+            toast.success("Upload complete!");
+        } catch (err: any) {
+            console.error(err);
+            toast.error(err.message || "Upload failed. Please try again.");
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
+        }
     };
 
     if (value) {
@@ -122,72 +174,27 @@ const FileUpload = ({ onChange, value, endpoint, onFileSelect, deferUploadForIma
                     : `Image/PDF up to ${UPLOAD_FILE_SIZES.messageImage}/${UPLOAD_FILE_SIZES.messagePdf}, audio up to ${UPLOAD_FILE_SIZES.messageAudio}, video up to ${UPLOAD_FILE_SIZES.messageVideo}`}
             </p>
 
-            <UploadButton
-                endpoint={endpoint}
-                onBeforeUploadBegin={(files) => {
-                    const file = files[0];
-                    if (!file) return files;
-
-                    const sizeError = validateFileSize(file, endpoint);
-                    if (sizeError) {
-                        toast.error(sizeError);
-                        return [];
-                    }
-
-                    onFileSelect?.(file);
-
-                    if (deferUploadForImages && file.type.startsWith("image/")) {
-                        onChange(URL.createObjectURL(file));
-                        return [];
-                    }
-
-                    return files;
-                }}
-                onClientUploadComplete={(res) => {
-                    const uploadedUrl = res?.[0]?.ufsUrl ?? res?.[0]?.url;
-                    if (!uploadedUrl) {
-                        toast.error("Upload finished but no file URL was returned.");
-                        return;
-                    }
-                    onChange(uploadedUrl);
-                    toast.success("Upload complete!");
-                }}
-                onUploadError={(err) => {
-                    console.log(err);
-                    const cause = err.cause as
-                        | string
-                        | Error
-                        | { reason?: string; message?: string }
-                        | undefined;
-                    const reason =
-                        typeof cause === "string"
-                            ? cause
-                            : cause &&
-                                typeof cause === "object" &&
-                                "reason" in cause &&
-                                cause.reason
-                              ? cause.reason
-                              : cause instanceof Error
-                                ? cause.message
-                                : err.message;
-                    toast.error(
-                        /limit|mismatch|too large/i.test(reason)
-                            ? reason
-                            : "Upload failed. Please try again.",
-                    );
-                }}
-                appearance={{
-                    button: "bg-primary-color hover:bg-primary-color/90 text-white font-medium px-6 py-2.5 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md ut-ready:bg-primary-color ut-uploading:cursor-not-allowed ut-uploading:bg-primary-color/50 ut-uploading:animate-pulse",
-                    allowedContent: "hidden",
-                }}
-                content={{
-                    button({ ready, isUploading }) {
-                        if (isUploading) return <Spinner />;
-                        if (ready) return "Choose File";
-                        return "Getting ready...";
-                    },
-                }}
+            <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept={
+                    endpoint === "imageUploader"
+                        ? "image/*"
+                        : "image/*,application/pdf,audio/*,video/*"
+                }
+                onChange={handleUpload}
+                disabled={isUploading}
             />
+
+            <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="bg-primary-color hover:bg-primary-color/90 text-white font-medium px-6 py-2.5 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md disabled:cursor-not-allowed disabled:bg-primary-color/50 disabled:animate-pulse flex items-center justify-center min-w-[120px]"
+            >
+                {isUploading ? <Spinner /> : "Choose File"}
+            </button>
         </div>
     );
 };

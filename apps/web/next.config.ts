@@ -14,9 +14,7 @@ const nextConfig: NextConfig = {
 
     images: {
         remotePatterns: [
-            { hostname: "uploadthing.com" },
-            { hostname: "z4hrk2n1pd.ufs.sh" },
-            { hostname: "6fobib5koe.ufs.sh" },
+            { hostname: "gateway.pinata.cloud" },
             { hostname: "ui-avatars.com" },
             { hostname: "img.clerk.com" },
         ],
@@ -76,10 +74,12 @@ const nextConfig: NextConfig = {
                     source: "/api/conversations",
                     destination: `${BACKEND_URL}/api/conversations`,
                 },
-                // Profile
+                // Profile sub-routes (nonce/verify/logout/setup/…) → Node API.
+                // Exact GET /api/profile is handled by apps/web/app/api/profile/route.ts
+                // so the session cookie is read in-process (rewrites don't always forward Cookie).
                 {
-                    source: "/api/profile/:path*",
-                    destination: `${BACKEND_URL}/api/profile/:path*`,
+                    source: "/api/profile/:path+",
+                    destination: `${BACKEND_URL}/api/profile/:path+`,
                 },
                 // Blockchain status
                 {

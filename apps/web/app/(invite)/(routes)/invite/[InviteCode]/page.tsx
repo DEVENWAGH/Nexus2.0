@@ -10,29 +10,13 @@ const InviteCodePage = async ({
     const { InviteCode } = await params;
 
     if (!InviteCode) {
-        return redirect("/");
+        return redirect("/setup");
     }
     const profile = await CurrentProfile();
     if (!profile) {
         return redirect("/sign-in");
     }
 
-    // Check if user is already a member of this server
-    const existingServer = await prisma.server.findFirst({
-        where: {
-            inviteCode: InviteCode,
-            members: {
-                some: {
-                    profileId: profile.id,
-                },
-            },
-        },
-    });
-    if (existingServer) {
-        return redirect(`/servers/${existingServer.id}`);
-    }
-
-    // Verify the invite code exists before trying to join
     const serverToJoin = await prisma.server.findUnique({
         where: {
             inviteCode: InviteCode,
@@ -40,28 +24,28 @@ const InviteCodePage = async ({
     });
 
     if (!serverToJoin) {
-        // Invalid invite code - redirect to home
-        return redirect("/");
+        return redirect("/setup");
     }
 
-    // Join the server by adding the user as a member
-    const server = await prisma.server.update({
+    // Use a direct member lookup (scalar fields) so OrbitDB can match reliably
+    const existingMember = await prisma.member.findFirst({
         where: {
-            inviteCode: InviteCode,
-        },
-        data: {
-            members: {
-                create: [
-                    {
-                        profileId: profile.id,
-                        role: MemberRole.GUEST,
-                    },
-                ],
-            },
+            serverId: serverToJoin.id,
+            profileId: profile.id,
         },
     });
 
-    return redirect(`/servers/${server.id}`);
+    if (!existingMember) {
+        await prisma.member.create({
+            data: {
+                profileId: profile.id,
+                serverId: serverToJoin.id,
+                role: MemberRole.GUEST,
+            },
+        });
+    }
+
+    return redirect(`/servers/${serverToJoin.id}`);
 };
 
 export default InviteCodePage;

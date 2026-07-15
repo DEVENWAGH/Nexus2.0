@@ -1,4 +1,4 @@
-/** UploadThing maxFileSize strings — must use power-of-2 values (UploadThing v7). */
+/** Max upload sizes for Pinata/IPFS uploads. */
 export const UPLOAD_FILE_SIZES = {
     serverIcon: "8MB",
     /** Steg encode outputs PNG, which is often much larger than a source JPEG. */

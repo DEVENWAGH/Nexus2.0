@@ -1,0 +1,21 @@
+{
+  "name": "@repo/orbitdb-node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@chainsafe/libp2p-gossipsub": "^14.1.0",
+    "@chainsafe/libp2p-noise": "^16.0.0",
+    "@chainsafe/libp2p-yamux": "^7.0.1",
+    "@libp2p/identify": "^3.0.0",
+    "@libp2p/tcp": "^10.0.0",
+    "@orbitdb/core": "^2.1.2",
+    "blockstore-fs": "^2.0.0",
+    "datastore-fs": "^3.0.0",
+    "helia": "^5.1.0",
+    "libp2p": "^2.2.0"
+  }
+}

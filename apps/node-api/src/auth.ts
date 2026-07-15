@@ -36,7 +36,8 @@ export async function getUserIdFromRequest(c: Context): Promise<string | null> {
         }
     }
 
-    if (DEV_MODE) {
+    // Optional local bypass only when explicitly enabled (avoids fake-user 404s on /api/profile)
+    if (DEV_MODE && process.env.DEV_AUTH_BYPASS === "true") {
         return "dev_user_001";
     }
 

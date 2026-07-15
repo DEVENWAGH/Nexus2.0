@@ -8,7 +8,6 @@ import { sendMail, getInviteEmailTemplate } from "./lib/mail";
 import { runAndEmailAudit } from "./lib/audit";
 import { normalizeImageBase64 } from "./lib/steganography";
 import { broadcastMessage, broadcastMessageUpdate, isUserLive, getOnlineUsersForServer, getActiveRoomPeers } from "./socket";
-import { deleteUploadThingFileForMessage } from "./lib/uploadthing-cleanup";
 import { setCookie } from "hono/cookie";
 import { sign } from "hono/jwt";
 import crypto from "crypto";
@@ -373,10 +372,6 @@ export function createApp(io: SocketIOServer) {
             }
         }
 
-        await deleteUploadThingFileForMessage(existing.fileUrl, {
-            messageId,
-        });
-
         const message = await prisma.message.update({
             where: { id: messageId },
             data: {
@@ -526,10 +521,6 @@ export function createApp(io: SocketIOServer) {
         }
 
         const convId = conversationId ?? existing.conversationId;
-
-        await deleteUploadThingFileForMessage(existing.fileUrl, {
-            directMessageId: messageId,
-        });
 
         const message = await prisma.directMessage.update({
             where: { id: messageId },
