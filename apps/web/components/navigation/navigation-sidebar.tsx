@@ -7,7 +7,7 @@ import { Separator } from "../ui/separator";
 import { ScrollArea } from "../ui/scroll-area";
 import NavigationItems from "./navigation-items";
 import { ModeToggle } from "../ModeToggle";
-import { ClerkUserButton } from "../clerk-user-button";
+import { WalletUserButton } from "../wallet-user-button";
 import { HomeIcon } from "lucide-react";
 import { Button } from "../ui/button";
 
@@ -73,7 +73,7 @@ const NavigationSidebar = async () => {
                         </Link>
                     </Button>
 
-                    <ClerkUserButton />
+                    <WalletUserButton />
 
                 </div>
             </div>

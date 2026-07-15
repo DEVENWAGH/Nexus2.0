@@ -106,11 +106,6 @@ export default function P2PFileTransfer({ apiUrl, query }: P2PFileTransferProps)
                 const response = await axios.post(
                     url,
                     { content: fileMessageContent },
-                    {
-                        headers: {
-                            ...(userId ? { "X-User-Id": userId } : {}),
-                        },
-                    }
                 );
                 
                 if (response?.data?.id) {

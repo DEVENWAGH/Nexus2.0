@@ -17,8 +17,8 @@ Browser A  ←—— WebRTC DataChannel ——→  Browser B
 
 | Data | Storage |
 |------|---------|
-| User profiles, servers, channels, memberships | **Postgres** (Clerk + Prisma) |
-| Real-time chat delivery | **P2P WebRTC** (this package) |
+| User profiles, servers, channels, memberships | **Postgres** (wallet auth + Prisma) |
+| Real-time chat delivery | **P2P WebRTC** with bounded gossip relay (this package) |
 | Message history (optional) | Local IndexedDB / future CRDT — **not** signaling server |
 | File uploads | UploadThing CDN (centralized asset host) |
 | Voice/video | LiveKit (centralized SFU) |
@@ -45,5 +45,6 @@ yarn dev
 1. **Done**: Signaling server + WebRTC mesh + AES-GCM in TypeScript
 2. **Done**: Wire DMs and text channels to `P2PMesh` via `P2PChatBridge`
 3. **Next**: Wire server/channel REST via Node API + Postgres
-4. **Later**: libp2p for NAT traversal / offline peer discovery
-5. **Later**: Optional IPFS or CRDT for encrypted message history sync
+4. **Done**: Bounded multi-hop gossip relay with seen-cache, TTL, and relay rate limits
+5. **Later**: libp2p for NAT traversal / offline peer discovery
+6. **Later**: Optional IPFS or CRDT for encrypted message history sync

@@ -10,6 +10,7 @@
         "lint": "eslint src"
     },
     "dependencies": {
+        "@repo/auth": "workspace:*",
         "ws": "^8.18.0"
     },
     "devDependencies": {

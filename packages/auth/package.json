@@ -1,0 +1,26 @@
+{
+    "name": "@repo/auth",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "sideEffects": false,
+    "scripts": {
+        "build": "tsc",
+        "lint": "eslint src",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "jose": "^6.0.11"
+    },
+    "devDependencies": {
+        "@repo/eslint-config": "workspace:*",
+        "@repo/typescript-config": "workspace:*",
+        "@types/node": "^22.0.0",
+        "eslint": "^9.0.0",
+        "typescript": "^5",
+        "vitest": "^3.2.4"
+    }
+}

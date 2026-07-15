@@ -73,7 +73,7 @@ graph TD
 
 ### 1. Centralized Workspace Features
 * **Servers & Channels**: Users can create, customize, and manage collaborative servers. Inside each server, admins can configure **Text**, **Audio**, and **Video** channels.
-* **Authentication**: Powered by **Clerk Auth**, providing secure registration, login, profile synchronization, and session management.
+* **Authentication**: Wallet-based sessions (MetaMask / Phantom) with HTTP-only `__session` JWT cookies via `@repo/auth`.
 * **Voice & Video Conferencing**: High-performance, low-latency audio/video calls utilizing a **LiveKit SFU (Selective Forwarding Unit)** server.
 * **Multimedia Uploads**: Handled via **UploadThing**, allowing users to upload and share images, PDFs, and media attachments directly in channels.
 
@@ -199,7 +199,7 @@ erDiagram
 | **Frontend Framework** | Next.js 16 (App Router) | Core UI, layouts, SSR, and dynamic rendering |
 | **Frontend Styling** | Tailwind CSS v4 & Shadcn/UI | Modern CSS variables, adaptive glassmorphism |
 | **State & Fetching** | Zustand & React Query | Global state store and client data cache |
-| **Authentication** | Clerk Auth | Multi-tenant auth, profile metadata synchronization |
+| **Authentication** | Wallet sessions (`@repo/auth`) | MetaMask / Phantom sign-in with JWT `__session` cookies |
 | **Backend REST API** | Hono (NodeJS) | REST router, steganography engine, blockchain node |
 | **Real-time Server** | Socket.IO (WebSockets) | Instant notifications, active member presence, WS relay |
 | **WebRTC P2P** | Native browser RTCPeerConnection | Peer mesh, ephemeral channel syncing, client-side encryption |

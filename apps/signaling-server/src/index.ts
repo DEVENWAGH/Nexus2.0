@@ -5,6 +5,7 @@
 
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
+import { verifySignalingTicket } from "@repo/auth";
 
 type PeerInfo = {
     peerId: string;
@@ -15,7 +16,7 @@ type PeerInfo = {
 type Room = Map<string, PeerInfo>;
 
 type ClientMessage =
-    | { type: "join"; roomId: string; peerId: string; userId?: string }
+    | { type: "join"; roomId: string; peerId: string; userId?: string; ticket: string }
     | { type: "leave"; roomId: string; peerId: string }
     | {
           type: "signal";
@@ -26,7 +27,7 @@ type ClientMessage =
 
 const PORT = Number(process.env.SIGNALING_PORT || process.env.PORT || 3001);
 const rooms = new Map<string, Room>();
-const socketRooms = new WeakMap<WebSocket, { roomId: string; peerId: string }>();
+const socketRooms = new WeakMap<WebSocket, { roomId: string; peerId: string; userId?: string }>();
 
 function send(ws: WebSocket, payload: unknown): void {
     if (ws.readyState === WebSocket.OPEN) {
@@ -67,7 +68,7 @@ const httpServer = createServer((_req, res) => {
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on("connection", (ws) => {
-    ws.on("message", (raw) => {
+    ws.on("message", async (raw) => {
         let message: ClientMessage;
         try {
             message = JSON.parse(String(raw)) as ClientMessage;
@@ -78,11 +79,19 @@ wss.on("connection", (ws) => {
 
         switch (message.type) {
             case "join": {
-                const { roomId, peerId, userId } = message;
-                if (!roomId || !peerId) {
-                    send(ws, { type: "error", message: "roomId and peerId required" });
+                const { roomId, peerId, ticket } = message;
+                if (!roomId || !peerId || !ticket) {
+                    send(ws, { type: "error", message: "roomId, peerId, and ticket are required" });
                     return;
                 }
+
+                const claims = await verifySignalingTicket(ticket, roomId, peerId);
+                if (!claims?.sub) {
+                    send(ws, { type: "error", message: "Invalid or expired signaling ticket" });
+                    return;
+                }
+
+                const userId = claims.sub;
 
                 let room = rooms.get(roomId);
                 if (!room) {
@@ -96,7 +105,7 @@ wss.on("connection", (ws) => {
                 }
 
                 room.set(peerId, { peerId, userId, ws });
-                socketRooms.set(ws, { roomId, peerId });
+                socketRooms.set(ws, { roomId, peerId, userId });
 
                 const peers = getRoomPeers(room, peerId).map((p) => ({
                     peerId: p.peerId,

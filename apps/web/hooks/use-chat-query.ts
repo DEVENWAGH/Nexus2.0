@@ -32,7 +32,7 @@ export const useChatQuery = ({
             { skipNull: true },
         );
         const res = await fetch(url, {
-            headers: userId ? { "X-User-Id": userId } : undefined,
+            credentials: "include",
         });
         if (!res.ok) {
             throw new Error(`Failed to fetch messages (${res.status})`);

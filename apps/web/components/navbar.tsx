@@ -7,7 +7,7 @@ import { Menu } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useT } from "@/components/providers/language-context";
 import { useUser } from "@/hooks/use-auth";
-import { ClerkUserButton } from "@/components/clerk-user-button";
+import { WalletUserButton } from "@/components/wallet-user-button";
 
 import {
     DropdownMenu,
@@ -19,7 +19,7 @@ import Image from "next/image";
 
 export const Navbar = () => {
     const t = useT();
-    const { user, isLoaded, isSignedIn } = useUser();
+    const { isLoaded, isSignedIn } = useUser();
 
     return (
         <nav className="fixed top-0 w-full z-50 border-b border-slate-200/40 dark:border-surface-indigo/15 bg-white/70 dark:bg-brand-canvas/70 backdrop-blur-lg shadow-[0_4px_30px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_30px_rgba(0,0,0,0.15)] transition-all duration-300">
@@ -59,28 +59,17 @@ export const Navbar = () => {
                                     {t("navbar.profile")}
                                 </Button>
                             </Link>
-                            <ClerkUserButton />
+                            <WalletUserButton />
                         </div>
                     ) : (
-                        <div className="flex items-center gap-4">
-                            <Link href="/sign-in">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-slate-700 hover:text-primary-color hover:bg-slate-100 dark:text-white dark:hover:text-brand-green dark:hover:bg-surface-indigo/40 rounded-lg px-4 h-9 transition-all duration-300 focus-visible:ring-2 focus-visible:ring-primary-color"
-                                >
-                                    {t("navbar.signIn")}
-                                </Button>
-                            </Link>
-                            <Link href="/sign-in">
-                                <Button
-                                    size="sm"
-                                    className="bg-brand-green hover:bg-brand-green/90 text-ink-dark font-semibold rounded-sm px-5 h-9 transition-all duration-300 shadow-md shadow-brand-green/20 focus-visible:ring-2 focus-visible:ring-brand-green"
-                                >
-                                    {t("navbar.signUp")}
-                                </Button>
-                            </Link>
-                        </div>
+                        <Link href="/sign-in">
+                            <Button
+                                size="sm"
+                                className="bg-brand-green hover:bg-brand-green/90 text-ink-dark font-semibold rounded-sm px-5 h-9 transition-all duration-300 shadow-md shadow-brand-green/20 focus-visible:ring-2 focus-visible:ring-brand-green"
+                            >
+                                {t("navbar.signIn")}
+                            </Button>
+                        </Link>
                     )}
                 </div>
 
@@ -90,7 +79,7 @@ export const Navbar = () => {
                     {!isLoaded ? (
                         <Skeleton className="h-9 w-9 rounded-full animate-pulse" />
                     ) : isSignedIn ? (
-                        <ClerkUserButton />
+                        <WalletUserButton />
                     ) : (
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -101,9 +90,6 @@ export const Navbar = () => {
                             <DropdownMenuContent align="end" className="bg-white dark:bg-brand-canvas border-slate-200 dark:border-surface-indigo/80 text-slate-800 dark:text-white rounded-lg">
                                 <DropdownMenuItem asChild className="focus:bg-slate-100 focus:text-slate-900 dark:focus:bg-surface-indigo/60 dark:focus:text-white">
                                     <Link href="/sign-in" className="w-full">{t("navbar.signIn")}</Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild className="focus:bg-slate-100 focus:text-slate-900 dark:focus:bg-surface-indigo/60 dark:focus:text-white">
-                                    <Link href="/sign-in" className="w-full">{t("navbar.signUp")}</Link>
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>

@@ -237,7 +237,6 @@ const MessageFileModal = () => {
                     response = await axios.post(
                         url,
                         { fileUrl: uploadedUrl, content: "" },
-                        { headers: { ...(userId ? { "X-User-Id": userId } : {}) } },
                     );
                 } else {
                     // â”€â”€ Audio / Video / PDF steganography (append-based) â”€â”€
@@ -293,7 +292,6 @@ const MessageFileModal = () => {
                     response = await axios.post(
                         url,
                         { fileUrl: uploadedUrl, content: "" },
-                        { headers: { ...(userId ? { "X-User-Id": userId } : {}) } },
                     );
                 }
             } else {
@@ -305,7 +303,6 @@ const MessageFileModal = () => {
                 response = await axios.post(
                     url,
                     { fileUrl: fileUrlToSend, content: "" },
-                    { headers: { ...(userId ? { "X-User-Id": userId } : {}) } },
                 );
             }
 

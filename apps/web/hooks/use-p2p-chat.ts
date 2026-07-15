@@ -3,37 +3,53 @@
 import { useEffect, useRef, useState } from "react";
 import { P2PMesh, type P2PChatMessage } from "@repo/p2p";
 import { useAuth } from "@/hooks/use-auth";
+import { fetchSignalingTicket } from "@/lib/fetch-signaling-ticket";
+import { getOrCreateIdentity } from "@/hooks/use-identity";
+import { verifyPayload, signPayload } from "@repo/p2p";
 
 const SIGNALING_URL =
     process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:3001";
 
-/**
- * Hook for P2P real-time chat in a room (channel or DM conversation).
- * Use alongside Postgres-backed history; new messages flow peer-to-peer.
- */
 export function useP2PChat({
     roomId,
     enabled = true,
     onMessage,
+    onGossipStats,
 }: {
     roomId: string;
     enabled?: boolean;
     onMessage?: (message: P2PChatMessage) => void;
+    onGossipStats?: (stats: ReturnType<P2PMesh["getGossipStats"]>) => void;
 }) {
     const { userId } = useAuth();
     const meshRef = useRef<P2PMesh | null>(null);
+    const peerIdRef = useRef(crypto.randomUUID());
     const [connectedPeers, setConnectedPeers] = useState(0);
     const [isReady, setIsReady] = useState(false);
 
     useEffect(() => {
         if (!enabled || !roomId || !userId) return;
 
+        const peerId = peerIdRef.current;
         const mesh = new P2PMesh({
             signalingUrl: SIGNALING_URL,
             roomId,
-            peerId: crypto.randomUUID(),
+            peerId,
             userId,
             encrypt: true,
+            enableGossip: true,
+            maxTtl: 3,
+            getSignalingTicket: () => fetchSignalingTicket(roomId, peerId),
+            signMessage: async (content, messageId) => {
+                const identity = await getOrCreateIdentity();
+                const signature = await signPayload(
+                    identity.privateKey,
+                    `${messageId}|${content}`,
+                );
+                return { did: identity.did, signature };
+            },
+            verifyMessage: (did, signature, signedPayload) =>
+                verifyPayload(did, signature, signedPayload),
         });
 
         mesh.on("peer-connected", () => {
@@ -47,6 +63,10 @@ export function useP2PChat({
 
         mesh.on("message", (message) => {
             onMessage?.(message);
+        });
+
+        mesh.on("gossip-stats", (stats) => {
+            onGossipStats?.(stats);
         });
 
         const unsubscribeError = mesh.on("error", (error) => {
@@ -72,7 +92,7 @@ export function useP2PChat({
             mesh.leave();
             meshRef.current = null;
         };
-    }, [roomId, userId, enabled, onMessage]);
+    }, [roomId, userId, enabled, onMessage, onGossipStats]);
 
     const sendP2P = async (content: string, id?: string) => {
         await meshRef.current?.send(content, id);

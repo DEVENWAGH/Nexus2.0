@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import z from "zod";
 import { Form, FormControl, FormField, FormItem } from "../ui/form";
-import { Plus, Send, Loader2, Timer, Flame, Bomb } from "lucide-react";
+import { Plus, Send, Loader2, Timer, Flame } from "lucide-react";
 import qs from "query-string";
 import axios from "axios";
 import { useModal } from "@/hooks/use-mode-store";
@@ -16,10 +16,12 @@ import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { upsertChatMessage } from "@/lib/chat-cache";
 import { useP2PChatContext } from "./p2p-chat-bridge";
 import P2PFileTransfer from "./p2p-file-transfer";
-
 import { encryptForChannel } from "@/lib/client-crypto";
 import { getOrCreateIdentity } from "@/hooks/use-identity";
 import { useBlockchain } from "@/hooks/use-blockchain";
+import { useContentScan } from "@/components/providers/content-scan-provider";
+import { SecurityConfirmModal } from "@/components/modals/security-confirm-modal";
+import type { ScanResult } from "@/lib/client-content-scan";
 
 interface ChatInputProps {
     apiUrl: string;
@@ -41,6 +43,11 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
     const [selfDestruct, setSelfDestruct] = useState<"none" | "10" | "30" | "60" | "300" | "3600" | "burn">("none");
     const [showDestructMenu, setShowDestructMenu] = useState(false);
     const { addTransaction } = useBlockchain();
+    const { scanOutgoing, requiresConfirmation } = useContentScan();
+    const [pendingValue, setPendingValue] = useState<z.infer<typeof formSchema> | null>(null);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmReasons, setConfirmReasons] = useState<string[]>([]);
+    const [confirmMeta, setConfirmMeta] = useState<{ source?: ScanResult["source"]; score?: number }>({});
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -50,76 +57,100 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
     });
     const isLoading = form.formState.isSubmitting;
 
+    const sendMessage = async (value: z.infer<typeof formSchema>) => {
+        const prefix = selfDestruct === "burn" ? "[BURN] " : selfDestruct !== "none" ? `[TTL:${selfDestruct}] ` : "";
+        const plainText = `${prefix}${value.content}`;
+        const chatId = query.channelId ?? query.conversationId ?? "";
+
+        let finalContent = plainText;
+        try {
+            const identity = await getOrCreateIdentity();
+            finalContent = await encryptForChannel(plainText, chatId, identity.privateKey);
+        } catch (cryptoErr) {
+            console.error("Client side encryption failed, sending plaintext as fallback", cryptoErr);
+        }
+
+        const interceptedValue = {
+            ...value,
+            content: finalContent
+        };
+
+        const url = qs.stringifyUrl({
+            url: apiUrl,
+            query,
+        });
+        const response = await axios.post(url, interceptedValue);
+        if (response?.data) {
+            if (chatId) {
+                queryClient.setQueryData(
+                    [`chat:${chatId}`],
+                    (
+                        oldData:
+                            | InfiniteData<{ items: unknown[] }>
+                            | undefined,
+                    ) => upsertChatMessage(oldData, response.data),
+                );
+
+                if (response.data.blockchainHash) {
+                    try {
+                        await addTransaction(
+                            userId || "anonymous",
+                            chatId,
+                            JSON.stringify({
+                                msg_id: response.data.id,
+                                msg_hash: response.data.blockchainHash,
+                                timestamp: Date.now()
+                            }),
+                            "message-hash"
+                        );
+                    } catch (bcErr) {
+                        console.error("Failed to log transaction to local blockchain:", bcErr);
+                    }
+                }
+            }
+            if (isReady && value.content) {
+                void sendP2P(`${prefix}${value.content}`, response.data.id);
+            }
+            form.reset();
+            setSelfDestruct("none");
+        }
+    };
+
     const onSubmit = async (value: z.infer<typeof formSchema>) => {
         try {
             const prefix = selfDestruct === "burn" ? "[BURN] " : selfDestruct !== "none" ? `[TTL:${selfDestruct}] ` : "";
             const plainText = `${prefix}${value.content}`;
-            const chatId = query.channelId ?? query.conversationId ?? "";
-
-            let finalContent = plainText;
-            try {
-                const identity = await getOrCreateIdentity();
-                finalContent = await encryptForChannel(plainText, chatId, identity.privateKey);
-            } catch (cryptoErr) {
-                console.error("Client side encryption failed, sending plaintext as fallback", cryptoErr);
+            const scan = await scanOutgoing(plainText);
+            if (requiresConfirmation(scan)) {
+                setPendingValue(value);
+                setConfirmReasons(scan.reasons);
+                setConfirmMeta({ source: scan.source, score: scan.score });
+                setConfirmOpen(true);
+                return;
             }
-
-            const interceptedValue = {
-                ...value,
-                content: finalContent
-            };
-
-            const url = qs.stringifyUrl({
-                url: apiUrl,
-                query,
-            });
-            const response = await axios.post(url, interceptedValue, {
-                headers: {
-                    ...(userId ? { "X-User-Id": userId } : {}),
-                },
-            });
-            if (response?.data) {
-                if (chatId) {
-                    queryClient.setQueryData(
-                        [`chat:${chatId}`],
-                        (
-                            oldData:
-                                | InfiniteData<{ items: unknown[] }>
-                                | undefined,
-                        ) => upsertChatMessage(oldData, response.data),
-                    );
-
-                    // Add integrity proof hash to client-side blockchain
-                    if (response.data.blockchainHash) {
-                        try {
-                            await addTransaction(
-                                userId || "anonymous",
-                                chatId,
-                                JSON.stringify({
-                                    msg_id: response.data.id,
-                                    msg_hash: response.data.blockchainHash,
-                                    timestamp: Date.now()
-                                }),
-                                "message-hash"
-                            );
-                        } catch (bcErr) {
-                            console.error("Failed to log transaction to local blockchain:", bcErr);
-                        }
-                    }
-                }
-                if (isReady && value.content) {
-                    void sendP2P(`${prefix}${value.content}`, response.data.id);
-                }
-                form.reset();
-                setSelfDestruct("none");
-            }
+            await sendMessage(value);
         } catch (err) {
             console.error(err);
         }
     };
 
+    const handleConfirmSend = async () => {
+        if (!pendingValue) return;
+        setConfirmOpen(false);
+        try {
+            await sendMessage(pendingValue);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setPendingValue(null);
+            setConfirmReasons([]);
+            setConfirmMeta({});
+        }
+    };
+
 
     return (
+        <>
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="w-full">
                 <FormField
@@ -237,6 +268,20 @@ const ChatInput = ({ apiUrl, query, name, type }: ChatInputProps) => {
                 />
             </form>
         </Form>
+        <SecurityConfirmModal
+            open={confirmOpen}
+            reasons={confirmReasons}
+            source={confirmMeta.source}
+            score={confirmMeta.score}
+            onCancel={() => {
+                setConfirmOpen(false);
+                setPendingValue(null);
+                setConfirmReasons([]);
+                setConfirmMeta({});
+            }}
+            onConfirm={handleConfirmSend}
+        />
+        </>
     );
 };
 

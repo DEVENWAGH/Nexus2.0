@@ -36,11 +36,6 @@ const LeaveServerModal = () => {
             await axios.post(
                 "/api/members/leave",
                 { serverId: server.id },
-                {
-                    headers: {
-                        ...(userId ? { "X-User-Id": userId } : {}),
-                    },
-                },
             );
             onClose();
             router.push("/");

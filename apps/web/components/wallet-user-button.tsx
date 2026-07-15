@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, User, Wallet } from "lucide-react";
-import axios from "axios";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -13,66 +12,48 @@ import {
     DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import UserAvatar from "./user-avatar";
-
 import { useModal } from "@/hooks/use-mode-store";
+import { useAuth, useUser } from "@/hooks/use-auth";
 
-export const ClerkUserButton = () => {
+export const WalletUserButton = () => {
     const router = useRouter();
     const { onOpen } = useModal();
-    const [profile, setProfile] = useState<any>(null);
+    const { signOut } = useAuth();
+    const { user, isLoaded } = useUser();
     const [isMounted, setIsMounted] = useState(false);
-
 
     useEffect(() => {
         setIsMounted(true);
-        const fetchProfile = async () => {
-            try {
-                const res = await axios.get("/api/profile");
-
-                setProfile(res.data);
-            } catch (err) {
-                console.error("Failed to load profile in user button:", err);
-            }
-        };
-        fetchProfile();
     }, []);
 
     const handleSignOut = async () => {
-        try {
-            await axios.post("/api/profile/logout");
-        } catch (e) {
-            console.error("Server logout error:", e);
-        }
-        // Fallback cookie deletion, clear storage, redirect
-        document.cookie = "__session=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
-        localStorage.removeItem("nexus-user-id");
+        await signOut();
         router.push("/sign-in");
         router.refresh();
     };
 
-
-    if (!isMounted) {
+    if (!isMounted || !isLoaded) {
         return (
             <div className="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-800 animate-pulse" />
         );
     }
 
-    const shortAddress = profile?.userId
-        ? `${profile.userId.slice(0, 6)}...${profile.userId.slice(-4)}`
+    const shortAddress = user?.id
+        ? `${user.id.slice(0, 6)}...${user.id.slice(-4)}`
         : "Wallet Connected";
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger className="outline-none relative cursor-pointer active:scale-95 transition-all">
                 <UserAvatar
-                    src={profile?.imageUrl}
+                    src={user?.imageUrl}
                     className="h-8 w-8 border border-indigo-500/20"
                 />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 bg-zinc-950 border border-zinc-800 text-zinc-100 rounded-xl p-1.5 shadow-2xl">
                 <DropdownMenuLabel className="px-2.5 py-2">
                     <div className="flex flex-col gap-0.5">
-                        <p className="text-xs font-semibold text-zinc-200 truncate">{profile?.name || "Nexus User"}</p>
+                        <p className="text-xs font-semibold text-zinc-200 truncate">{user?.fullName || "Nexus User"}</p>
                         <p className="text-[10px] font-mono text-indigo-400 font-medium truncate flex items-center gap-1 mt-0.5">
                             <Wallet className="h-3 w-3" />
                             {shortAddress}

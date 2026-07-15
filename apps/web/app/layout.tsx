@@ -4,7 +4,7 @@ import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
 import { extractRouterConfig } from "uploadthing/server";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/theme-provider";
-import { ClerkProviderWrapper } from "@/components/providers/clerk-provider-wrapper";
+import { AuthProvider } from "@/components/providers/auth-provider";
 import { LanguageProvider } from "@/components/providers/language-context";
 import { Toaster } from "@/components/ui/sonner";
 import { ourFileRouter } from "@/app/api/uploadthing/core";
@@ -52,12 +52,12 @@ export default function RootLayout({
                     enableSystem={true}
                     storageKey="nexus-theme"
                 >
-                    <ClerkProviderWrapper>
+                    <AuthProvider>
                         <LanguageProvider>
                             {children}
                             <Toaster />
                         </LanguageProvider>
-                    </ClerkProviderWrapper>
+                    </AuthProvider>
                 </ThemeProvider>
             </body>
         </html>

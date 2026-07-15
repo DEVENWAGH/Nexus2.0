@@ -56,33 +56,26 @@ export default function SignInPage() {
                 return;
             }
 
-            // 2. Fetch Nonce from Node API
-            const nonceRes = await axios.post("/api/profile/nonce", { address });
+            // 2. Fetch Nonce from Node API (via Next route so cookies stay on :3000)
+            const nonceRes = await axios.post("/api/auth/nonce", { address, walletType: "evm" });
             const { nonce } = nonceRes.data;
 
-            // 3. Hex-encode the challenge message for MetaMask personal_sign
-            const hexMsg = "0x" + Array.from(new TextEncoder().encode(nonce))
-                .map(b => b.toString(16).padStart(2, "0"))
-                .join("");
-
-            // Prompt user to sign message
+            // 3. Ask MetaMask to sign the plaintext challenge
             const signature = await ethereum.request({
                 method: "personal_sign",
-                params: [hexMsg, address],
+                params: [nonce, address],
             });
 
-            // 4. Verify signature on backend
-            const verifyRes = await axios.post("/api/profile/verify", {
+            // 4. Verify signature and set HTTP-only session cookie
+            const verifyRes = await axios.post("/api/auth/verify", {
                 address,
                 signature,
                 walletType: "evm",
             });
 
             if (verifyRes.data.success) {
-                localStorage.setItem("nexus-user-id", address);
                 toast.success("Wallet authentication successful!");
-                router.push("/");
-                router.refresh();
+                window.location.href = "/setup";
             } else {
                 toast.error("Authentication verification failed.");
             }
@@ -110,8 +103,8 @@ export default function SignInPage() {
             const conn = await provider.connect();
             const address = conn.publicKey.toString();
 
-            // 2. Fetch Nonce from Node API
-            const nonceRes = await axios.post("/api/profile/nonce", { address });
+            // 2. Fetch Nonce via Next auth route
+            const nonceRes = await axios.post("/api/auth/nonce", { address, walletType: "solana" });
             const { nonce } = nonceRes.data;
 
             // 3. Prompt user to sign challenge
@@ -119,18 +112,16 @@ export default function SignInPage() {
             const signed = await provider.signMessage(encodedMessage, "utf8");
             const signature = toBase58(signed.signature);
 
-            // 4. Verify signature on backend
-            const verifyRes = await axios.post("/api/profile/verify", {
+            // 4. Verify signature and set HTTP-only session cookie
+            const verifyRes = await axios.post("/api/auth/verify", {
                 address,
                 signature,
                 walletType: "solana",
             });
 
             if (verifyRes.data.success) {
-                localStorage.setItem("nexus-user-id", address);
                 toast.success("Phantom wallet authentication successful!");
-                router.push("/");
-                router.refresh();
+                window.location.href = "/setup";
             } else {
                 toast.error("Authentication verification failed.");
             }

@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
-@layer theme, base, clerk, components, utilities;
+@layer theme, base, components, utilities;
 
 @custom-variant dark (&:where(.dark, .dark *));
 

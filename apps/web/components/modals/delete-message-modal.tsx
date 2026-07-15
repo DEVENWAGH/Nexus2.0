@@ -31,11 +31,7 @@ const DeleteMessageModal = () => {
                 query: query,
             });
 
-            await axios.delete(url, {
-                headers: {
-                    ...(userId ? { "X-User-Id": userId } : {}),
-                },
-            });
+            await axios.delete(url);
             onClose();
         } catch (error) {
             console.log(

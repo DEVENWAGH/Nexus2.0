@@ -3,12 +3,14 @@ import { ModalProvider } from "@/components/providers/modal-provider";
 import { CallProvider } from "@/components/providers/call-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { SocketProvider } from "@/components/providers/socket-provider";
+import { ContentScanProvider } from "@/components/providers/content-scan-provider";
 import { UnreadProvider } from "@/components/providers/unread-provider";
 
 const MainLayout = async ({ children }: { children: React.ReactNode }) => {
     return (
         <div className="h-screen flex overflow-hidden">
             <SocketProvider>
+                <ContentScanProvider>
                 <UnreadProvider>
                     <div className="hidden md:flex h-full w-18 z-30 flex-col fixed inset-y-0">
                         <NavigationSidebar />
@@ -22,6 +24,7 @@ const MainLayout = async ({ children }: { children: React.ReactNode }) => {
                         </CallProvider>
                     </main>
                 </UnreadProvider>
+                </ContentScanProvider>
             </SocketProvider>
         </div>
     );

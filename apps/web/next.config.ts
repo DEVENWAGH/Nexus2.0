@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
     /* config options here */
     output: "standalone",
     reactCompiler: true,
-    transpilePackages: ["@repo/db", "@repo/p2p"],
+    transpilePackages: ["@repo/db", "@repo/p2p", "@repo/auth"],
     // Prevent Prisma from being bundled into the client-side (browser) bundle.
     // Prisma's generated client requires Node.js APIs and cannot run in the browser.
     serverExternalPackages: ["@prisma/client", ".prisma/client"],
@@ -18,7 +18,6 @@ const nextConfig: NextConfig = {
             { hostname: "z4hrk2n1pd.ufs.sh" },
             { hostname: "6fobib5koe.ufs.sh" },
             { hostname: "ui-avatars.com" },
-            { hostname: "img.clerk.com" },
         ],
     },
 
@@ -75,6 +74,10 @@ const nextConfig: NextConfig = {
                 {
                     source: "/api/conversations",
                     destination: `${BACKEND_URL}/api/conversations`,
+                },
+                {
+                    source: "/api/signaling/:path*",
+                    destination: `${BACKEND_URL}/api/signaling/:path*`,
                 },
                 // Profile
                 {

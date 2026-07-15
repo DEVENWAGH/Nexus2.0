@@ -10,10 +10,15 @@ import { normalizeImageBase64 } from "./lib/steganography";
 import { broadcastMessage, broadcastMessageUpdate, isUserLive, getOnlineUsersForServer, getActiveRoomPeers } from "./socket";
 import { deleteUploadThingFileForMessage } from "./lib/uploadthing-cleanup";
 import { setCookie } from "hono/cookie";
-import { sign } from "hono/jwt";
 import crypto from "crypto";
 import bs58 from "bs58";
 import { ethers } from "ethers";
+import {
+    normalizeWalletAddress,
+    nonceKey,
+    signSessionToken,
+    signSignalingTicket,
+} from "@repo/auth";
 
 const nonces = new Map<string, { nonce: string; expires: number }>();
 
@@ -39,7 +44,7 @@ export function createApp(io: SocketIOServer) {
         "*",
         cors({
             origin: "*",
-            allowHeaders: ["Authorization", "Content-Type", "X-User-Id", "Cookie"],
+            allowHeaders: ["Authorization", "Content-Type", "Cookie"],
             allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
             credentials: true,
         }),
@@ -56,16 +61,17 @@ export function createApp(io: SocketIOServer) {
     // ── Decentralized Wallet Authentication ──────────────────────────────────────
     app.post("/api/profile/nonce", async (c) => {
         try {
-            const body = await c.req.json<{ address: string }>();
+            const body = await c.req.json<{ address: string; walletType?: "evm" | "solana" }>();
             const address = body.address?.trim();
+            const walletType = body.walletType ?? "evm";
             if (!address) {
                 return c.json({ error: "Wallet address is required" }, 400);
             }
 
             const nonce = `Nexus Authentication Challenge: Sign this message to prove ownership of your wallet. Nonce: ${crypto.randomUUID()}`;
-            const expires = Date.now() + 5 * 60 * 1000; // 5 minutes expiration
+            const expires = Date.now() + 5 * 60 * 1000;
 
-            nonces.set(address.toLowerCase(), { nonce, expires });
+            nonces.set(nonceKey(address, walletType), { nonce, expires });
 
             return c.json({ nonce });
         } catch (error) {
@@ -91,13 +97,13 @@ export function createApp(io: SocketIOServer) {
             }
 
             // Retrieve expected challenge
-            const cached = nonces.get(address.toLowerCase());
+            const cached = nonces.get(nonceKey(address, walletType));
             if (!cached) {
                 return c.json({ error: "Challenge not found or expired. Request a new nonce." }, 400);
             }
 
             if (Date.now() > cached.expires) {
-                nonces.delete(address.toLowerCase());
+                nonces.delete(nonceKey(address, walletType));
                 return c.json({ error: "Challenge expired. Request a new nonce." }, 400);
             }
 
@@ -148,21 +154,22 @@ export function createApp(io: SocketIOServer) {
             }
 
             // Signature is valid. Clear nonce
-            nonces.delete(address.toLowerCase());
+            nonces.delete(nonceKey(address, walletType));
 
-            // Get or create database Profile
+            const canonicalUserId = normalizeWalletAddress(address, walletType);
+
             let profile = await prisma.profile.findUnique({
-                where: { userId: address },
+                where: { userId: canonicalUserId },
             });
 
             if (!profile) {
                 const shortName = walletType === "evm"
-                    ? `${address.slice(0, 6)}...${address.slice(-4)}`
-                    : `${address.slice(0, 4)}...${address.slice(-4)}`;
+                    ? `${canonicalUserId.slice(0, 6)}...${canonicalUserId.slice(-4)}`
+                    : `${canonicalUserId.slice(0, 4)}...${canonicalUserId.slice(-4)}`;
 
                 profile = await prisma.profile.create({
                     data: {
-                        userId: address,
+                        userId: canonicalUserId,
                         name: walletType === "evm" ? `EVM-${shortName}` : `Solana-${shortName}`,
                         imageUrl: `https://ui-avatars.com/api/?name=${shortName}&background=6366f1&color=fff`,
                         email: "",
@@ -170,16 +177,7 @@ export function createApp(io: SocketIOServer) {
                 });
             }
 
-            // Generate custom JWT token
-            const JWT_SECRET = process.env.JWT_SECRET || "nexus-fallback-secret-key-321";
-            const token = await sign(
-                {
-                    sub: address,
-                    iat: Math.floor(Date.now() / 1000),
-                    exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 days session
-                },
-                JWT_SECRET
-            );
+            const token = await signSessionToken(canonicalUserId);
 
             // Set session token in cookie
             setCookie(c, "__session", token, {
@@ -190,7 +188,7 @@ export function createApp(io: SocketIOServer) {
                 sameSite: "Lax",
             });
 
-            return c.json({ success: true, profile });
+            return c.json({ success: true, profile, token });
         } catch (error) {
             console.error("[verify] Error:", error);
             return c.json({ error: "Authentication failed" }, 500);
@@ -222,6 +220,25 @@ export function createApp(io: SocketIOServer) {
         });
 
         return c.json(profiles);
+    });
+
+    app.post("/api/signaling/ticket", requireAuth, async (c) => {
+        const userId = c.get("userId") as string;
+        const body = await c.req.json<{ roomId?: string; peerId?: string }>();
+        const roomId = body.roomId?.trim();
+        const peerId = body.peerId?.trim();
+
+        if (!roomId || !peerId) {
+            return c.json({ error: "roomId and peerId are required" }, 400);
+        }
+
+        const ticket = await signSignalingTicket({
+            sub: userId,
+            roomId,
+            peerId,
+        });
+
+        return c.json({ ticket, expiresIn: 300 });
     });
 
     // ── Messages ──────────────────────────────────────────────────

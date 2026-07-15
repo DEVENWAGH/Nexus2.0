@@ -1,5 +1,6 @@
 import type { Server as HttpServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
+import { verifySessionToken } from "@repo/auth";
 
 export type SocketIO = SocketIOServer;
 
@@ -44,12 +45,31 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
         addTrailingSlash: false,
     });
 
+    io.use(async (socket, next) => {
+        try {
+            const cookieHeader = socket.handshake.headers.cookie ?? "";
+            const match = cookieHeader.match(/__session=([^;]+)/);
+            if (!match) {
+                return next(new Error("Unauthorized"));
+            }
+            const claims = await verifySessionToken(match[1]);
+            if (!claims?.sub) {
+                return next(new Error("Unauthorized"));
+            }
+            socket.data.userId = claims.sub;
+            next();
+        } catch {
+            next(new Error("Unauthorized"));
+        }
+    });
+
     io.on("connection", (socket) => {
         console.log(`[Socket.IO] Connected: ${socket.id}`);
 
         socket.on("identify", (data: { userId?: string; serverId?: string }) => {
+            const sessionUserId = socket.data.userId as string | undefined;
             const userId = data?.userId;
-            if (!userId) return;
+            if (!sessionUserId || !userId || userId !== sessionUserId) return;
 
             userSessions.set(userId, {
                 socketId: socket.id,
@@ -83,7 +103,6 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
             void socket.leave(room);
         });
 
-        // ── WebRTC Call Signaling events ──────────────────────────────────────
         socket.on("call:initiate", (data: {
             callerId: string;
             callerMemberId: string;
@@ -97,6 +116,8 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
             serverId?: string;
             callType?: "video" | "audio";
         }) => {
+            const sessionUserId = socket.data.userId as string | undefined;
+            if (!sessionUserId || data.callerId !== sessionUserId) return;
             const callId = crypto.randomUUID();
             const callType = data.callType || "audio";
 
@@ -247,7 +268,10 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
 
         // ── P2P WebRTC Signaling events ──────────────────────────────────────
         socket.on("p2p:join", (data: { roomId: string; peerId: string; userId?: string }) => {
-            const { roomId, peerId, userId } = data;
+            const sessionUserId = socket.data.userId as string | undefined;
+            const { roomId, peerId } = data;
+            const userId = sessionUserId;
+            if (!sessionUserId) return;
             let room = p2pRooms.get(roomId);
             if (!room) {
                 room = new Map();

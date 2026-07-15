@@ -14,6 +14,7 @@ import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { upsertChatMessage } from "@/lib/chat-cache";
 import { useP2PChat } from "@/hooks/use-p2p-chat";
+import { useFakeNodeDetector } from "@/hooks/use-fake-node-detector";
 
 type MessageWithMemberProfile = Message & {
     member: Member & { profile: Profile };
@@ -63,6 +64,7 @@ export const P2PChatBridge = ({
 }: P2PChatBridgeProps) => {
     const queryClient = useQueryClient();
     const { userId } = useAuth();
+    const { inspectMessage } = useFakeNodeDetector();
     const [p2pFiles, setP2pFiles] = useState<Record<string, { blob: Blob; name: string }>>({});
 
     const registerP2PFile = useCallback((fileId: string, blob: Blob, name: string) => {
@@ -73,10 +75,19 @@ export const P2PChatBridge = ({
     }, []);
 
     const onMessage = useCallback(
-        (p2pMessage: P2PChatMessage) => {
+        async (p2pMessage: P2PChatMessage) => {
             if (p2pMessage.fromUserId === userId && !p2pMessage.content.startsWith("[P2P-FILE:")) {
                 return;
             }
+
+            const allowed = await inspectMessage(
+                p2pMessage.fromPeerId,
+                p2pMessage.content,
+                p2pMessage.did,
+                p2pMessage.signature,
+                p2pMessage.id,
+            );
+            if (!allowed) return;
 
             // Find matching member profile from the room members list
             const senderMember = members?.find(
@@ -117,7 +128,7 @@ export const P2PChatBridge = ({
                 ) => upsertChatMessage(oldData, message),
             );
         },
-        [queryClient, queryKey, roomId, currentMember, paramKey, userId, members],
+        [queryClient, queryKey, roomId, currentMember, paramKey, userId, members, inspectMessage],
     );
 
     const { sendP2P, connectedPeers, isReady, mesh } = useP2PChat({

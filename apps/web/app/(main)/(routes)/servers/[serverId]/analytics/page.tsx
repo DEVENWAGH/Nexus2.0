@@ -18,6 +18,7 @@ import { useIdentity } from "@/hooks/use-identity";
 import { useReputationEngine } from "@/hooks/use-reputation-engine";
 import { useFakeNodeDetector } from "@/hooks/use-fake-node-detector";
 import { useP2PChat } from "@/hooks/use-p2p-chat";
+import type { GossipStats } from "@repo/p2p";
 import UserAvatar from "@/components/user-avatar";
 import {
     Tooltip,
@@ -95,9 +96,16 @@ export default function AnalyticsPage() {
     const router = useRouter();
     const params = useParams();
     const serverId = params?.serverId as string;
+    const [gossipStats, setGossipStats] = useState<GossipStats>({
+        relayed: 0,
+        droppedDuplicate: 0,
+        droppedInvalid: 0,
+        droppedRateLimit: 0,
+    });
     const { isReady, connectedPeers } = useP2PChat({
         roomId: `server-lobby:${serverId}`,
         enabled: true,
+        onGossipStats: setGossipStats,
     });
     const { userId } = useAuth();
 
@@ -661,7 +669,7 @@ export default function AnalyticsPage() {
                                         <div className="absolute bottom-3 right-3 bg-card border border-border rounded-lg p-2.5 text-[9px] font-mono text-muted-foreground flex flex-col gap-1 shadow-sm">
                                             <div className="flex items-center gap-1.5"><div className="h-1.5 w-5 bg-emerald-500 rounded" /> Secure link</div>
                                             <div className="flex items-center gap-1.5"><div className="h-1.5 w-5 bg-indigo-500 rounded" /> Standard P2P</div>
-                                            <div className="flex items-center gap-1.5"><div className="h-1.5 w-5 bg-pink-500 rounded" /> Cross-peer relay</div>
+                                            <div className="flex items-center gap-1.5"><div className="h-1.5 w-5 bg-pink-500 rounded" /> Cross-peer relay ({gossipStats.relayed})</div>
                                         </div>
                                     </div>
                                 </motion.div>
@@ -719,6 +727,14 @@ export default function AnalyticsPage() {
                                                         <span className="text-[10px] text-muted-foreground">{new Date(alert.timestamp).toLocaleTimeString()}</span>
                                                     </div>
                                                     <p className="text-xs text-foreground mt-1">{alert.reason}</p>
+                                                    {(alert.source || typeof alert.score === "number") && (
+                                                        <p className="text-[10px] text-muted-foreground mt-1">
+                                                            {alert.source ? `Source: ${alert.source}` : ""}
+                                                            {typeof alert.score === "number" && alert.score > 0
+                                                                ? `${alert.source ? " · " : ""}Score ${(alert.score * 100).toFixed(1)}%`
+                                                                : ""}
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 {!alert.dismissed && (
                                                     <button onClick={() => dismissAlert(alert.id)} className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary cursor-pointer transition-colors">

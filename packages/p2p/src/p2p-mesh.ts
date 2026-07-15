@@ -13,6 +13,10 @@ import type {
     PeerInfo,
     SignalPayload,
     SignalingServerMessage,
+    ChatWireEnvelope,
+    GossipStats,
+    SignMessageFn,
+    VerifyMessageFn,
 } from "./types";
 
 export type P2PMeshOptions = {
@@ -20,9 +24,13 @@ export type P2PMeshOptions = {
     roomId: string;
     peerId: string;
     userId?: string;
-    /** When true, payloads on the wire are AES-GCM encrypted with roomId as channel key */
     encrypt?: boolean;
     iceServers?: RTCIceServer[];
+    enableGossip?: boolean;
+    maxTtl?: number;
+    getSignalingTicket?: () => Promise<string>;
+    signMessage?: SignMessageFn;
+    verifyMessage?: VerifyMessageFn;
 };
 
 type PeerConnection = {
@@ -35,8 +43,17 @@ const DEFAULT_ICE: RTCIceServer[] = [
     { urls: "stun:stun1.l.google.com:19302" },
 ];
 
+const SEEN_CACHE_TTL_MS = 120_000;
+const SEEN_CACHE_MAX = 1024;
+const MAX_CHAT_PAYLOAD_BYTES = 256_000;
+const RELAY_RATE_PER_SECOND = 20;
+const RELAY_BURST = 40;
+
 export class P2PMesh {
-    private readonly options: P2PMeshOptions;
+    private readonly options: Required<
+        Pick<P2PMeshOptions, "encrypt" | "iceServers" | "enableGossip" | "maxTtl">
+    > &
+        P2PMeshOptions;
     private signaling: SignalingClient | null = null;
     private peers = new Map<string, PeerConnection>();
     private listeners = new Map<keyof P2PMeshEvents, Set<P2PMeshEvents[keyof P2PMeshEvents]>>();
@@ -51,11 +68,21 @@ export class P2PMesh {
             onAck: (index: number, fromPeerId: string) => void;
         }
     >();
+    private seenMessages = new Map<string, number>();
+    private relayBuckets = new Map<string, { tokens: number; lastRefill: number }>();
+    private gossipStats: GossipStats = {
+        relayed: 0,
+        droppedDuplicate: 0,
+        droppedInvalid: 0,
+        droppedRateLimit: 0,
+    };
 
     constructor(options: P2PMeshOptions) {
         this.options = {
             encrypt: true,
             iceServers: DEFAULT_ICE,
+            enableGossip: true,
+            maxTtl: 3,
             ...options,
         };
     }
@@ -68,6 +95,10 @@ export class P2PMesh {
         return () => this.listeners.get(event)?.delete(handler as P2PMeshEvents[keyof P2PMeshEvents]);
     }
 
+    getGossipStats(): GossipStats {
+        return { ...this.gossipStats };
+    }
+
     private emit<K extends keyof P2PMeshEvents>(
         event: K,
         ...args: Parameters<P2PMeshEvents[K]>
@@ -75,6 +106,61 @@ export class P2PMesh {
         for (const handler of this.listeners.get(event) ?? []) {
             (handler as (...a: Parameters<P2PMeshEvents[K]>) => void)(...args);
         }
+    }
+
+    private emitGossipStats(): void {
+        this.emit("gossip-stats", { ...this.gossipStats });
+    }
+
+    private pruneSeenCache(): void {
+        const now = Date.now();
+        for (const [id, expiresAt] of this.seenMessages) {
+            if (expiresAt <= now) {
+                this.seenMessages.delete(id);
+            }
+        }
+        while (this.seenMessages.size > SEEN_CACHE_MAX) {
+            const oldest = this.seenMessages.keys().next().value;
+            if (!oldest) break;
+            this.seenMessages.delete(oldest);
+        }
+    }
+
+    private markSeen(messageId: string): void {
+        this.pruneSeenCache();
+        this.seenMessages.set(messageId, Date.now() + SEEN_CACHE_TTL_MS);
+    }
+
+    private hasSeen(messageId: string): boolean {
+        this.pruneSeenCache();
+        const expiresAt = this.seenMessages.get(messageId);
+        if (!expiresAt) return false;
+        if (expiresAt <= Date.now()) {
+            this.seenMessages.delete(messageId);
+            return false;
+        }
+        return true;
+    }
+
+    private consumeRelayToken(peerId: string): boolean {
+        const now = Date.now();
+        const bucket = this.relayBuckets.get(peerId) ?? {
+            tokens: RELAY_BURST,
+            lastRefill: now,
+        };
+        const elapsed = (now - bucket.lastRefill) / 1000;
+        bucket.tokens = Math.min(
+            RELAY_BURST,
+            bucket.tokens + elapsed * RELAY_RATE_PER_SECOND,
+        );
+        bucket.lastRefill = now;
+        if (bucket.tokens < 1) {
+            this.relayBuckets.set(peerId, bucket);
+            return false;
+        }
+        bucket.tokens -= 1;
+        this.relayBuckets.set(peerId, bucket);
+        return true;
     }
 
     async join(): Promise<void> {
@@ -89,24 +175,38 @@ export class P2PMesh {
 
         await this.signaling.connectAsync();
 
+        const ticket = this.options.getSignalingTicket
+            ? await this.options.getSignalingTicket()
+            : "";
+
         this.signaling.send({
             type: "join",
             roomId: this.options.roomId,
             peerId: this.options.peerId,
             userId: this.options.userId,
+            ticket,
         });
         this.joined = true;
     }
 
     async send(content: string, id?: string): Promise<void> {
+        const messageId = id || crypto.randomUUID();
         const message: P2PChatMessage = {
-            id: id || crypto.randomUUID(),
+            id: messageId,
             fromPeerId: this.options.peerId,
             fromUserId: this.options.userId,
             content,
             encrypted: Boolean(this.options.encrypt),
             timestamp: Date.now(),
         };
+
+        if (this.options.signMessage) {
+            const signed = await this.options.signMessage(content, messageId);
+            if (signed) {
+                message.did = signed.did;
+                message.signature = signed.signature;
+            }
+        }
 
         let wirePayload: string;
         if (this.options.encrypt) {
@@ -115,14 +215,28 @@ export class P2PMesh {
             wirePayload = JSON.stringify(message);
         }
 
-        const envelope = JSON.stringify({ kind: "chat", payload: wirePayload });
+        const envelope: ChatWireEnvelope = {
+            kind: "chat",
+            v: 1,
+            hop: this.options.enableGossip ? this.options.maxTtl : 0,
+            ttl: this.options.maxTtl,
+            payload: wirePayload,
+        };
 
-        // Echo to self for UI consistency
+        this.markSeen(messageId);
         this.emit("message", message);
+        this.broadcastChatEnvelope(envelope);
+    }
 
-        for (const [, conn] of this.peers) {
+    private broadcastChatEnvelope(
+        envelope: ChatWireEnvelope,
+        excludePeerId?: string,
+    ): void {
+        const wire = JSON.stringify(envelope);
+        for (const [peerId, conn] of this.peers) {
+            if (peerId === excludePeerId) continue;
             if (conn.dc?.readyState === "open") {
-                conn.dc.send(envelope);
+                conn.dc.send(wire);
             }
         }
     }
@@ -132,7 +246,7 @@ export class P2PMesh {
         fileId: string = crypto.randomUUID(),
         onProgress?: (progress: number) => void,
     ): Promise<string> {
-        const chunkSize = 32768; // 32KBsafe WebRTC chunk size
+        const chunkSize = 32768;
         const totalChunks = Math.ceil(file.size / chunkSize);
 
         const entireBuffer = await file.arrayBuffer();
@@ -147,12 +261,11 @@ export class P2PMesh {
             hash: fileHash,
         };
 
-        // Send metadata to all peers
         const metaEnvelope = JSON.stringify({
             kind: "file_metadata",
             payload: JSON.stringify(metadata),
         });
-        
+
         for (const [, conn] of this.peers) {
             if (conn.dc?.readyState === "open") {
                 conn.dc.send(metaEnvelope);
@@ -163,7 +276,6 @@ export class P2PMesh {
             const { buffer } = await getFileChunk(file, i, chunkSize);
             const chunkHash = await computeBufferHash(buffer);
 
-            // Convert ArrayBuffer to base64
             const bytes = new Uint8Array(buffer);
             let binary = "";
             for (let b = 0; b < bytes.byteLength; b++) {
@@ -183,7 +295,6 @@ export class P2PMesh {
                 payload: JSON.stringify(chunkPayload),
             });
 
-            // Track active peers for this chunk
             const activePeerIds = new Set<string>();
             for (const [peerId, conn] of this.peers) {
                 if (conn.dc?.readyState === "open") {
@@ -205,7 +316,6 @@ export class P2PMesh {
                     onAck: (index: number, fromPeerId: string) => {
                         if (index === i) {
                             receivedFrom.add(fromPeerId);
-                            // Filter active peer IDs by currently open data channels
                             const stillActivePeers = [...activePeerIds].filter(pid =>
                                 this.peers.get(pid)?.dc?.readyState === "open"
                             );
@@ -217,7 +327,6 @@ export class P2PMesh {
                     }
                 });
 
-                // Send the chunk to all active peers
                 for (const peerId of activePeerIds) {
                     const conn = this.peers.get(peerId);
                     if (conn?.dc?.readyState === "open") {
@@ -225,7 +334,6 @@ export class P2PMesh {
                     }
                 }
 
-                // Wait for all ACKs or 3s fallback timeout
                 await Promise.race([
                     ackPromise,
                     new Promise((resolve) => setTimeout(resolve, 3000)),
@@ -277,7 +385,7 @@ export class P2PMesh {
 
                 reports.forEach((report) => {
                     if (report.type === "candidate-pair" && report.state === "succeeded") {
-                        rtt = report.currentRoundTripTime ? report.currentRoundTripTime * 1000 : 0; // ms
+                        rtt = report.currentRoundTripTime ? report.currentRoundTripTime * 1000 : 0;
                     }
                     if (report.type === "outbound-rtp") {
                         bytesSent += report.bytesSent ?? 0;
@@ -333,7 +441,6 @@ export class P2PMesh {
         }
     }
 
-    /** Lower peerId initiates offer to avoid glare */
     private shouldInitiate(remotePeerId: string): boolean {
         return this.options.peerId < remotePeerId;
     }
@@ -438,7 +545,20 @@ export class P2PMesh {
 
     private async handleDataMessage(raw: string, fromPeerId: string): Promise<void> {
         try {
-            const envelope = JSON.parse(raw) as { kind: string; payload: string };
+            if (raw.length > MAX_CHAT_PAYLOAD_BYTES) {
+                this.gossipStats.droppedInvalid++;
+                this.emitGossipStats();
+                return;
+            }
+
+            const envelope = JSON.parse(raw) as {
+                kind: string;
+                payload: string;
+                hop?: number;
+                ttl?: number;
+                prevPeerId?: string;
+                v?: number;
+            };
 
             if (envelope.kind === "file_metadata") {
                 const metadata = JSON.parse(envelope.payload) as FileMetadata;
@@ -493,20 +613,107 @@ export class P2PMesh {
 
             if (envelope.kind !== "chat") return;
 
-            let messageJson = envelope.payload;
-            if (this.options.encrypt) {
-                messageJson = await decryptMessage(envelope.payload, this.options.roomId);
-            }
-
-            const message = JSON.parse(messageJson) as P2PChatMessage;
-            if (message.fromPeerId === this.options.peerId) return;
-            this.emit("message", message);
+            await this.processChatEnvelope(
+                {
+                    kind: "chat" as const,
+                    v: envelope.v,
+                    hop: envelope.hop,
+                    ttl: envelope.ttl,
+                    prevPeerId: envelope.prevPeerId,
+                    payload: envelope.payload,
+                },
+                fromPeerId,
+            );
         } catch (error) {
             this.emit(
                 "error",
                 error instanceof Error ? error : new Error("Failed to parse P2P message"),
             );
         }
+    }
+
+    private async processChatEnvelope(
+        envelope: ChatWireEnvelope,
+        fromPeerId: string,
+    ): Promise<void> {
+        const hop = envelope.hop ?? 0;
+        const ttl = envelope.ttl ?? this.options.maxTtl;
+
+        if (hop < 0 || hop > ttl || hop > this.options.maxTtl) {
+            this.gossipStats.droppedInvalid++;
+            this.emitGossipStats();
+            return;
+        }
+
+        let messageJson = envelope.payload;
+        if (this.options.encrypt) {
+            messageJson = await decryptMessage(envelope.payload, this.options.roomId);
+        }
+
+        let message: P2PChatMessage;
+        try {
+            message = JSON.parse(messageJson) as P2PChatMessage;
+        } catch {
+            this.gossipStats.droppedInvalid++;
+            this.emitGossipStats();
+            return;
+        }
+
+        if (!message.id) {
+            this.gossipStats.droppedInvalid++;
+            this.emitGossipStats();
+            return;
+        }
+
+        if (this.hasSeen(message.id)) {
+            this.gossipStats.droppedDuplicate++;
+            this.emitGossipStats();
+            return;
+        }
+
+        this.markSeen(message.id);
+
+        if (message.fromPeerId === this.options.peerId) {
+            return;
+        }
+
+        if (message.did && message.signature && this.options.verifyMessage) {
+            const valid = await this.options.verifyMessage(
+                message.did,
+                message.signature,
+                `${message.id}|${message.content}`,
+            );
+            if (!valid) {
+                this.gossipStats.droppedInvalid++;
+                this.emitGossipStats();
+                return;
+            }
+        }
+
+        this.emit("message", message);
+
+        if (!this.options.enableGossip || hop <= 0) {
+            return;
+        }
+
+        if (!this.consumeRelayToken(fromPeerId)) {
+            this.gossipStats.droppedRateLimit++;
+            this.emitGossipStats();
+            return;
+        }
+
+        const relayEnvelope: ChatWireEnvelope = {
+            kind: "chat",
+            v: envelope.v ?? 1,
+            hop: hop - 1,
+            ttl,
+            prevPeerId: this.options.peerId,
+            payload: envelope.payload,
+        };
+
+        this.gossipStats.relayed++;
+        this.emitGossipStats();
+        this.broadcastChatEnvelope(relayEnvelope, fromPeerId);
     }
 
     private removePeer(peerId: string): void {
@@ -519,4 +726,4 @@ export class P2PMesh {
     }
 }
 
-export type { PeerInfo, P2PChatMessage };
+export type { PeerInfo, P2PChatMessage, GossipStats };

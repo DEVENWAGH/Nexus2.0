@@ -219,7 +219,6 @@ const StegModal = () => {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    ...(userId ? { "X-User-Id": userId } : {}),
                 },
                 body: JSON.stringify({ fileUrl: uploadedUrl, content: "" }),
             });

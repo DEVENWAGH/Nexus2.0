@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { verifyPayload } from "@repo/p2p";
+import { evaluateContentRules } from "@/lib/content-rules";
+import { scanText } from "@/lib/client-content-scan";
 
 export type FakeNodeAlert = {
     id: string;
@@ -10,34 +12,13 @@ export type FakeNodeAlert = {
     severity: "warning" | "critical";
     timestamp: number;
     dismissed: boolean;
+    source?: "rules" | "onnx" | "rules+onnx";
+    score?: number;
 };
 
 type FakeNodeDetectorOptions = {
     onBlacklist?: (peerId: string, reason: string) => void;
 };
-
-// ── Heuristic checks ─────────────────────────────────────────────────────
-
-function detectSuspiciousPatterns(content: string): { suspicious: boolean; reasons: string[] } {
-    const reasons: string[] = [];
-
-    // Injection patterns
-    if (/\b(exec|eval|base64_decode|system|shell_exec)\b/i.test(content)) {
-        reasons.push("Potential code injection payload detected");
-    }
-    // Abnormally large payloads (> 64KB of text)
-    if (content.length > 65536) {
-        reasons.push("Oversized message payload (potential flood attack)");
-    }
-    // Repetitive patterns (DoS flooding marker)
-    if (/(.)\1{100,}/.test(content)) {
-        reasons.push("Repetitive pattern detected (potential DoS flooding)");
-    }
-
-    return { suspicious: reasons.length > 0, reasons };
-}
-
-// ── Main hook ─────────────────────────────────────────────────────────────
 
 export function useFakeNodeDetector(options: FakeNodeDetectorOptions = {}) {
     const [alerts, setAlerts] = useState<FakeNodeAlert[]>([]);
@@ -45,7 +26,12 @@ export function useFakeNodeDetector(options: FakeNodeDetectorOptions = {}) {
     const signaturesPerPeer = useRef<Map<string, { total: number; failed: number }>>(new Map());
 
     const addAlert = useCallback(
-        (peerId: string, reason: string, severity: FakeNodeAlert["severity"]) => {
+        (
+            peerId: string,
+            reason: string,
+            severity: FakeNodeAlert["severity"],
+            meta?: Pick<FakeNodeAlert, "source" | "score">,
+        ) => {
             const alert: FakeNodeAlert = {
                 id: `${peerId}-${Date.now()}`,
                 peerId,
@@ -53,10 +39,11 @@ export function useFakeNodeDetector(options: FakeNodeDetectorOptions = {}) {
                 severity,
                 timestamp: Date.now(),
                 dismissed: false,
+                source: meta?.source,
+                score: meta?.score,
             };
-            setAlerts((prev) => [alert, ...prev.slice(0, 49)]); // Max 50 alerts
+            setAlerts((prev) => [alert, ...prev.slice(0, 49)]);
 
-            // Auto-blacklist on critical alerts
             if (severity === "critical" && !blacklistedPeers.current.has(peerId)) {
                 blacklistedPeers.current.add(peerId);
                 options.onBlacklist?.(peerId, reason);
@@ -66,32 +53,42 @@ export function useFakeNodeDetector(options: FakeNodeDetectorOptions = {}) {
     );
 
     const inspectMessage = useCallback(
-        async (peerId: string, content: string, did?: string, signature?: string): Promise<boolean> => {
-            // Already blacklisted
+        async (
+            peerId: string,
+            content: string,
+            did?: string,
+            signature?: string,
+            messageId?: string,
+        ): Promise<boolean> => {
             if (blacklistedPeers.current.has(peerId)) return false;
 
-            // 1. Content heuristics check
-            const { suspicious, reasons } = detectSuspiciousPatterns(content);
-            if (suspicious) {
-                addAlert(peerId, reasons.join("; "), "warning");
-                const stats = signaturesPerPeer.current.get(peerId) ?? { total: 0, failed: 0 };
-                stats.failed++;
-                signaturesPerPeer.current.set(peerId, stats);
+            const rules = evaluateContentRules(content);
+            if (rules.suspicious) {
+                addAlert(peerId, rules.reasons.join("; "), "warning", { source: "rules" });
             }
 
-            // 2. DID signature verification
+            const ai = await scanText(content);
+            if (ai.suspicious) {
+                addAlert(
+                    peerId,
+                    ai.reasons.join("; "),
+                    ai.label === "malicious" ? "critical" : "warning",
+                    { source: ai.source, score: ai.score },
+                );
+            }
+
             if (did && signature) {
                 const statsEntry = signaturesPerPeer.current.get(peerId) ?? { total: 0, failed: 0 };
                 statsEntry.total++;
 
                 try {
-                    const isValid = await verifyPayload(did, signature, content);
+                    const signedPayload = messageId ? `${messageId}|${content}` : content;
+                    const isValid = await verifyPayload(did, signature, signedPayload);
                     if (!isValid) {
                         statsEntry.failed++;
                         signaturesPerPeer.current.set(peerId, statsEntry);
                         addAlert(peerId, `DID signature verification failed (${statsEntry.failed}/${statsEntry.total} failed)`, "warning");
 
-                        // Escalate to critical after 3 consecutive failures
                         if (statsEntry.failed >= 3) {
                             addAlert(peerId, "Critical: Repeated DID signature failures — peer may be impersonating another node", "critical");
                             return false;

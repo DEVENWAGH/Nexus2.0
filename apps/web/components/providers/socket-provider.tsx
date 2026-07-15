@@ -44,19 +44,15 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
+            withCredentials: true,
         });
 
         setSocket(socketInstance);
 
         const onConnect = () => {
             setIsConnected(true);
-            const id =
-                userId ||
-                (typeof window !== "undefined"
-                    ? localStorage.getItem("nexus-user-id")
-                    : null);
-            if (id) {
-                socketInstance.emit("identify", { userId: id, serverId });
+            if (userId) {
+                socketInstance.emit("identify", { userId, serverId });
             }
         };
 
@@ -64,7 +60,6 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
         socketInstance.on("disconnect", () => {
             setIsConnected(false);
-            // Keep the socket instance so call/voice listeners survive brief drops.
         });
 
         socketInstance.on("connect_error", () => {
