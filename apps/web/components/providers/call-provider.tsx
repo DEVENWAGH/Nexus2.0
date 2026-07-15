@@ -256,12 +256,12 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
                 // via member-id conversation routes with ?audio=true
                 const targetPath = data.serverId
                     ? `/servers/${data.serverId}/conversation/${otherMemberIdForRoute}?audio=true`
-                    : `${pathname}${pathname.includes("?") ? "&" : "?"}audio=true`;
+                    : `${pathname || ""}${(pathname || "").includes("?") ? "&" : "?"}audio=true`;
 
                 const isAudio = searchParams?.get("audio") === "true";
                 const targetBase = targetPath.split("?")[0];
 
-                if (pathname !== targetBase || !isAudio) {
+                if ((pathname || "") !== targetBase || !isAudio) {
                     router.push(targetPath);
                 }
             },

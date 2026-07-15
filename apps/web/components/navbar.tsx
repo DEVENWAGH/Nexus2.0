@@ -7,7 +7,7 @@ import { Menu } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useT } from "@/components/providers/language-context";
 import { useUser } from "@/hooks/use-auth";
-import { ClerkUserButton } from "@/components/clerk-user-button";
+import { UserButton } from "@/components/user-button";
 
 import {
     DropdownMenu,
@@ -59,25 +59,16 @@ export const Navbar = () => {
                                     {t("navbar.profile")}
                                 </Button>
                             </Link>
-                            <ClerkUserButton />
+                            <UserButton />
                         </div>
                     ) : (
                         <div className="flex items-center gap-4">
                             <Link href="/sign-in">
                                 <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-slate-700 hover:text-primary-color hover:bg-slate-100 dark:text-white dark:hover:text-brand-green dark:hover:bg-surface-indigo/40 rounded-lg px-4 h-9 transition-all duration-300 focus-visible:ring-2 focus-visible:ring-primary-color"
-                                >
-                                    {t("navbar.signIn")}
-                                </Button>
-                            </Link>
-                            <Link href="/sign-in">
-                                <Button
                                     size="sm"
                                     className="bg-brand-green hover:bg-brand-green/90 text-ink-dark font-semibold rounded-sm px-5 h-9 transition-all duration-300 shadow-md shadow-brand-green/20 focus-visible:ring-2 focus-visible:ring-brand-green"
                                 >
-                                    {t("navbar.signUp")}
+                                    {t("navbar.signIn")}
                                 </Button>
                             </Link>
                         </div>
@@ -90,23 +81,16 @@ export const Navbar = () => {
                     {!isLoaded ? (
                         <Skeleton className="h-9 w-9 rounded-full animate-pulse" />
                     ) : isSignedIn ? (
-                        <ClerkUserButton />
+                        <UserButton />
                     ) : (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="icon" aria-label="Toggle navigation menu" className="border-slate-200 bg-white hover:bg-slate-50 text-slate-800 dark:border-surface-indigo dark:bg-brand-canvas dark:hover:bg-surface-indigo/40 dark:text-white focus-visible:ring-2 focus-visible:ring-primary-color">
-                                    <Menu className="h-5 w-5" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="bg-white dark:bg-brand-canvas border-slate-200 dark:border-surface-indigo/80 text-slate-800 dark:text-white rounded-lg">
-                                <DropdownMenuItem asChild className="focus:bg-slate-100 focus:text-slate-900 dark:focus:bg-surface-indigo/60 dark:focus:text-white">
-                                    <Link href="/sign-in" className="w-full">{t("navbar.signIn")}</Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild className="focus:bg-slate-100 focus:text-slate-900 dark:focus:bg-surface-indigo/60 dark:focus:text-white">
-                                    <Link href="/sign-in" className="w-full">{t("navbar.signUp")}</Link>
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        <Link href="/sign-in">
+                            <Button
+                                size="sm"
+                                className="bg-brand-green hover:bg-brand-green/90 text-ink-dark font-semibold rounded-sm px-4 h-9 transition-all duration-300 shadow-md shadow-brand-green/20"
+                            >
+                                {t("navbar.signIn")}
+                            </Button>
+                        </Link>
                     )}
                 </div>
             </div>

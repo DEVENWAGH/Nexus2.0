@@ -16,7 +16,7 @@ import UserAvatar from "./user-avatar";
 
 import { useModal } from "@/hooks/use-mode-store";
 
-export const ClerkUserButton = () => {
+export const UserButton = () => {
     const router = useRouter();
     const { onOpen } = useModal();
     const [profile, setProfile] = useState<any>(null);
