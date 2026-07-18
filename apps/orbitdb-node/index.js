@@ -494,7 +494,7 @@ async function start() {
 
   console.log('Opening OrbitDB databases...');
   const allDbs = {};
-  const models = ['profile', 'server', 'member', 'channel', 'message', 'conversation', 'directMessage'];
+  const models = ['profile', 'server', 'member', 'channel', 'message', 'conversation', 'directMessage', 'blockchainBlock', 'blockchainTransaction'];
 
   for (const model of models) {
     allDbs[model] = await orbitdb.open(model, { type: 'documents' });
@@ -540,7 +540,7 @@ async function start() {
         const db = allDbs[model];
         if (!db) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: `Unknown model: ${model}` }));
+          res.end(JSON.stringify({ error: `Unknown model: ${model}. Available models: ${Object.keys(allDbs).join(', ')}` }));
           return;
         }
 

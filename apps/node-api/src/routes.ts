@@ -6,6 +6,8 @@ import { requireAuth } from "./auth";
 import { hashMessageAsync } from "./lib/blockchain-hash";
 import { sendMail, getInviteEmailTemplate } from "./lib/mail";
 import { runAndEmailAudit } from "./lib/audit";
+import { blockchainLogger } from "./lib/blockchain";
+import { localBlockchain } from "./lib/local-blockchain";
 import { normalizeImageBase64 } from "./lib/steganography";
 import { broadcastMessage, broadcastMessageUpdate, isUserLive, getOnlineUsersForServer, getActiveRoomPeers } from "./socket";
 import { setCookie } from "hono/cookie";
@@ -37,7 +39,9 @@ export function createApp(io: SocketIOServer) {
     app.use(
         "*",
         cors({
-            origin: "*",
+            // Reflect the request origin instead of wildcard '*'.
+            // Wildcard is incompatible with credentials:true per the CORS spec.
+            origin: (origin) => origin ?? "*",
             allowHeaders: ["Authorization", "Content-Type", "X-User-Id", "Cookie"],
             allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
             credentials: true,
@@ -306,17 +310,29 @@ export function createApp(io: SocketIOServer) {
         // Server stores it as-is without re-encrypting
         const bcHash = await hashMessageAsync(content);
 
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24-hour self-destruct TTL
+
         const message = await prisma.message.create({
             data: {
                 content: content, // stored as client-encrypted ciphertext
                 memberId: member.id,
                 channelId,
                 fileUrl: fileUrl ?? null,
+                expiresAt,
             },
             include: { member: memberInclude },
         });
 
         broadcastMessage(io, channelId, message);
+
+        // Log to PoW blockchain ledger in the background (non-blocking)
+        // Swallow errors — an offline OrbitDB node must NOT break message creation.
+        blockchainLogger.logMessageBackground(
+            profile.name ?? userId,
+            channelId,
+            content,
+            channelId,
+        ).catch((err) => console.warn("[Blockchain] Failed to log channel message (non-fatal):", err?.message));
 
         // Notify other server members
         const resolvedServerId = serverId ?? channel.serverId;
@@ -466,12 +482,15 @@ export function createApp(io: SocketIOServer) {
         // Content arrives pre-encrypted from the client (v2 client crypto)
         const bcHash = await hashMessageAsync(content);
 
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24-hour self-destruct TTL
+
         const message = await prisma.directMessage.create({
             data: {
                 content: content, // stored as client-encrypted ciphertext
                 memberId,
                 conversationId,
                 fileUrl: fileUrl ?? null,
+                expiresAt,
             },
             include: { member: memberInclude },
         });
@@ -499,6 +518,15 @@ export function createApp(io: SocketIOServer) {
                 message,
             });
         }
+
+        // Log to PoW blockchain ledger in the background (non-blocking)
+        // Swallow errors — an offline OrbitDB node must NOT break DM creation.
+        blockchainLogger.logMessageBackground(
+            userId,
+            conversationId,
+            content,
+            conversationId,
+        ).catch((err) => console.warn("[Blockchain] Failed to log DM (non-fatal):", err?.message));
 
         return c.json({ ...message, blockchainHash: bcHash });
     });
@@ -1081,18 +1109,104 @@ export function createApp(io: SocketIOServer) {
     });
 
     // â”€â”€ Blockchain & users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    app.get("/api/blockchain/status", (c) => c.json({ connected: true, mode: "client-side-indexeddb", note: "Blockchain moved to browser IndexedDB + WebRTC" }));
+    app.get("/api/blockchain/status", async (c) => {
+        try {
+            const status = await blockchainLogger.getChainStatus();
+            return c.json({ ...status, mode: "decentralized-orbitdb" });
+        } catch (error) {
+            return c.json({ error: "Failed to get blockchain status" }, 500);
+        }
+    });
 
+    app.post("/api/blockchain/mine", requireAuth, async (c) => {
+        try {
+            const block = await blockchainLogger.minePending();
+            if (block) {
+                return c.json({ success: true, block });
+            }
+            return c.json({ success: false, message: "No pending transactions in blockchain ledger" });
+        } catch (error) {
+            return c.json({ error: "Mining failed" }, 500);
+        }
+    });
 
+    // ── Internal: purge self-destruct messages ────────────────────────────────────
+    // Hard-deletes ALL messages/DMs that have a self-destruct TTL (expiresAt IS NOT NULL).
+    app.get("/api/internal/purge-expired", async (c) => {
+        const secret = c.req.header("X-Internal-Secret");
+        const expectedSecret = process.env.INTERNAL_SECRET ?? "nexus-internal";
+        if (secret !== expectedSecret) {
+            return c.json({ error: "Unauthorized" }, 401);
+        }
 
+        const now = new Date();
 
-    app.post("/api/blockchain/mine", (c) => c.json({ error: "Mining moved client-side. Use useBlockchain() hook.", moved_to: "browser-web-worker" }, 410));
+        const [deletedMessages, deletedDMs] = await Promise.all([
+            prisma.message.deleteMany({
+                where: { expiresAt: { lte: now } }, // ONLY messages whose 24h TTL has passed
+            }),
+            prisma.directMessage.deleteMany({
+                where: { expiresAt: { lte: now } }, // ONLY DMs whose 24h TTL has passed
+            }),
+        ]);
 
+        try {
+            await blockchainLogger.pruneExpiredData();
+        } catch (err) {
+            console.error("[internal-purge] Blockchain pruning failed:", err);
+        }
 
+        console.log(
+            `[purge-expired] Deleted ${deletedMessages.count} messages + ${deletedDMs.count} DMs at ${now.toISOString()}`
+        );
 
+        return c.json({
+            purgedAt: now.toISOString(),
+            deletedMessages: deletedMessages.count,
+            deletedDirectMessages: deletedDMs.count,
+        });
+    });
 
+    // POST /api/admin/purge-expired
+    // Hard-deletes ALL messages/DMs with a self-destruct TTL (expiresAt IS NOT NULL).
+    app.post("/api/admin/purge-expired", async (c) => {
+        const now = new Date();
+        try {
+            const [deletedMessages, deletedDMs] = await Promise.all([
+                prisma.message.deleteMany({
+                    where: { expiresAt: { not: null } }, // all self-destruct messages
+                }),
+                prisma.directMessage.deleteMany({
+                    where: { expiresAt: { not: null } }, // all self-destruct DMs
+                }),
+            ]);
 
+            // Wipe the entire blockchain ledger — no messages left, audit log is reset
+            let prunedBlocks = 0;
+            let prunedTransactions = 0;
+            try {
+                const pruneResult = await blockchainLogger.purgeAllData();
+                prunedBlocks = pruneResult.prunedBlocks;
+                prunedTransactions = pruneResult.prunedTransactions;
+            } catch (err) {
+                console.error("[admin-purge] Blockchain full purge failed:", err);
+            }
 
+            console.log(
+                `[admin-purge] Deleted ${deletedMessages.count} messages + ${deletedDMs.count} DMs, pruned ${prunedBlocks} blocks + ${prunedTransactions} TXs at ${now.toISOString()}`
+            );
+
+            return c.json({
+                deletedMessages: deletedMessages.count,
+                deletedDirectMessages: deletedDMs.count,
+                prunedBlocks,
+                prunedTransactions,
+            });
+        } catch (error) {
+            console.error("[admin-purge] Error running purge:", error);
+            return c.json({ error: "Failed to run message purge" }, 500);
+        }
+    });
 
     app.get("/api/users/:userId/status", async (c) => {
         return c.json({ isLive: isUserLive(c.req.param("userId")) });
@@ -1104,7 +1218,7 @@ export function createApp(io: SocketIOServer) {
         return c.json({ onlineUserIds: list });
     });
 
-    // â”€â”€ Steganography â€” MOVED TO CLIENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Steganography — MOVED TO CLIENT ─────────────────────────────────────
     // All steganographic operations now run in the browser via Web Workers.
     // These stubs return 410 Gone so old clients get a clear signal to upgrade.
     const STEG_GONE = { error: "Steganography has moved client-side. Update your Nexus client.", moved_to: "browser-web-worker" } as const;
@@ -1187,8 +1301,20 @@ export function createApp(io: SocketIOServer) {
                 prisma.directMessage.count({ where: { expiresAt: { not: null } } })
             ]);
 
-            const status = { connected: true, mode: "client-side-indexeddb", length: 0, local_length: 0 };
-            const pending: unknown[] = [];
+            // Blockchain status — gracefully degrade when OrbitDB is offline
+            let chainStatus = { connected: false, length: 0 } as { connected: boolean; length: number };
+            let pendingCount = 0;
+            try {
+                chainStatus = await blockchainLogger.getChainStatus();
+            } catch {
+                // OrbitDB node not reachable — return safe defaults
+            }
+            try {
+                const pending = await localBlockchain.getPending();
+                pendingCount = pending.length;
+            } catch {
+                // OrbitDB node not reachable — return safe defaults
+            }
 
             return c.json({
                 totalProfiles,
@@ -1207,10 +1333,13 @@ export function createApp(io: SocketIOServer) {
                     expiringDMs,
                 },
                 blockchain: {
-                    connected: status.connected,
-                    mode: status.mode,
-                    note: "Blockchain has been moved client-side (IndexedDB + WebRTC sync)",
-                    pendingTransactions: pending.length,
+                    connected: chainStatus.connected,
+                    mode: "decentralized-orbitdb",
+                    length: chainStatus.length,
+                    note: chainStatus.connected
+                        ? `OrbitDB Document Store (Chain Height: ${chainStatus.length} blocks)`
+                        : "OrbitDB node offline — start with: yarn workspace @repo/orbitdb-node dev",
+                    pendingTransactions: pendingCount,
                 },
                 system: {
                     uptime: process.uptime(),
@@ -1227,10 +1356,27 @@ export function createApp(io: SocketIOServer) {
 
     // â”€â”€ Blockchain: Routes â€” MOVED TO CLIENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Blocks and verification are now stored in browser IndexedDB and synced via WebRTC.
-    const BC_GONE = { error: "Blockchain has moved client-side (IndexedDB + WebRTC sync).", moved_to: "browser-indexeddb" } as const;
-    app.get("/api/blockchain/blocks", (c) => c.json(BC_GONE, 410));
-    app.get("/api/blockchain/verify/:hash", (c) => c.json(BC_GONE, 410));
-    app.post("/api/blockchain/mine", (c) => c.json(BC_GONE, 410));
+    app.get("/api/blockchain/blocks", async (c) => {
+        try {
+            const blocks = await localBlockchain.getBlocks();
+            return c.json(blocks);
+        } catch (error) {
+            return c.json({ error: "Failed to fetch blocks" }, 500);
+        }
+    });
+
+    app.get("/api/blockchain/verify/:hash", async (c) => {
+        const hash = c.req.param("hash");
+        try {
+            const result = await localBlockchain.verifyMessage(hash);
+            if (result) {
+                return c.json(result);
+            }
+            return c.json({ verified: false, message: "Hash not found in blockchain ledger" });
+        } catch (error) {
+            return c.json({ error: "Verification failed" }, 500);
+        }
+    });
 
     // â”€â”€ Server Invite via Email â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // POST /api/servers/:serverId/invite/email

@@ -14,10 +14,11 @@ function triggerAutoMine() {
 
     mineTimeout = setTimeout(async () => {
         mineTimeout = null;
-        if (localBlockchain.getPending().length === 0) return;
+        const pending = await localBlockchain.getPending();
+        if (pending.length === 0) return;
         isMining = true;
         try {
-            console.log(`[Blockchain] Auto-mining ${localBlockchain.getPending().length} pending transactions...`);
+            console.log(`[Blockchain] Auto-mining ${pending.length} pending transactions...`);
             const minedBlock = await blockchainLogger.minePending();
             if (minedBlock) {
                 console.log(`[Blockchain] Auto-mined block #${minedBlock.index} successfully (hash: ${minedBlock.hash.slice(0, 16)}...)`);
@@ -27,7 +28,8 @@ function triggerAutoMine() {
         } finally {
             isMining = false;
             // If new transactions arrived during mining, schedule again
-            if (localBlockchain.getPending().length > 0) {
+            const currentPending = await localBlockchain.getPending();
+            if (currentPending.length > 0) {
                 triggerAutoMine();
             }
         }
@@ -72,8 +74,13 @@ export const blockchainLogger = {
             reasons,
         };
 
-        // Write to local in-repo blockchain node
-        await localBlockchain.addTransaction(sender, recipient, JSON.stringify(payload), "message_log");
+        // Write to local in-repo blockchain node (best-effort)
+        try {
+            await localBlockchain.addTransaction(sender, recipient, JSON.stringify(payload), "message_log");
+        } catch (err) {
+            console.warn("[Blockchain] Local ledger write failed (non-fatal):", (err as Error)?.message);
+            return msgHash;
+        }
 
         const tx = {
             sender,
@@ -104,7 +111,7 @@ export const blockchainLogger = {
     },
 
     async getChainStatus() {
-        const blocks = localBlockchain.getBlocks();
+        const blocks = await localBlockchain.getBlocks();
         
         // Check external status
         try {
@@ -155,5 +162,13 @@ export const blockchainLogger = {
         }
 
         return minedBlock;
+    },
+
+    async pruneExpiredData() {
+        return localBlockchain.pruneExpiredBlockchainData();
+    },
+
+    async purgeAllData() {
+        return localBlockchain.purgeAllBlockchainData();
     },
 };

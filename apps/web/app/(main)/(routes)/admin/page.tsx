@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useBlockchain } from "@/hooks/use-blockchain";
+
 import { motion, AnimatePresence } from "motion/react";
 import { useTheme } from "next-themes";
 import {
@@ -59,6 +59,7 @@ interface PlatformAnalytics {
         mode: string;
         note?: string;
         pendingTransactions: number;
+        length?: number;
     };
     system: {
         uptime: number;
@@ -74,9 +75,10 @@ interface PlatformAnalytics {
 }
 
 interface PurgeResult {
-    purgedAt: string;
     deletedMessages: number;
     deletedDirectMessages: number;
+    prunedBlocks?: number;
+    prunedTransactions?: number;
 }
 
 interface MineResult {
@@ -254,8 +256,7 @@ export default function AdminDashboard() {
     const [auditLoading, setAuditLoading] = useState(false);
     const [logs, setLogs] = useState<{ text: string; type: "info" | "success" | "error" | "warn"; id: number }[]>([]);
 
-    // Client-side blockchain (IndexedDB + PoW Web Worker)
-    const { blocks, pending, isMining, lastMinedBlock, mine } = useBlockchain();
+
 
     const addLog = useCallback((text: string, type: "info" | "success" | "error" | "warn" = "info") => {
         setLogs((prev) => [{ text, type, id: Date.now() + Math.random() }, ...prev.slice(0, 49)]);
@@ -322,13 +323,14 @@ export default function AdminDashboard() {
         setPurgeResult(null);
         addLog("Triggering manual database message purge...", "info");
         try {
-            const res = await axios.get<PurgeResult>(`${NODE_API}/api/internal/purge-expired`, {
-                headers: { "X-Internal-Secret": "nexus-internal" },
-            });
+            const res = await axios.post<PurgeResult>(`${NODE_API}/api/admin/purge-expired`);
             setPurgeResult(res.data);
             const totalDeleted = res.data.deletedMessages + res.data.deletedDirectMessages;
+            const blockchainNote = (res.data.prunedBlocks ?? 0) > 0
+                ? ` + pruned ${res.data.prunedBlocks} blocks / ${res.data.prunedTransactions} TXs from OrbitDB`
+                : "";
             addLog(
-                `Manual Purge Complete: Cleared ${res.data.deletedMessages} channel messages and ${res.data.deletedDirectMessages} DMs.`,
+                `Manual Purge Complete: Cleared ${res.data.deletedMessages} channel messages and ${res.data.deletedDirectMessages} DMs${blockchainNote}.`,
                 totalDeleted > 0 ? "success" : "info"
             );
             void fetchAnalytics();
@@ -342,19 +344,30 @@ export default function AdminDashboard() {
     const handleMine = async () => {
         setMineLoading(true);
         setMineResult(null);
-        addLog("Initiating proof-of-work mining on client-side blockchain ledger...", "info");
+        addLog("Initiating decentralized Proof-of-Work mining on OrbitDB ledger...", "info");
         try {
-            const block = await mine();
-            if (block) {
-                setMineResult({ success: true, block: { index: block.index, timestamp: new Date(block.timestamp).toISOString(), hash: block.hash, transactionCount: block.transactions.length } });
-                addLog(`Ledger block #${block.index} mined locally (hash: ${block.hash.slice(0, 16)}...) — stored in IndexedDB`, "success");
+            const res = await axios.post(`${NODE_API}/api/blockchain/mine`, {}, { withCredentials: true });
+            const data = res.data;
+            if (data.success && data.block) {
+                setMineResult({
+                    success: true,
+                    block: {
+                        index: data.block.index,
+                        timestamp: new Date(data.block.timestamp).toISOString(),
+                        hash: data.block.hash,
+                        transactionCount: data.block.transactions.length ?? 0
+                    }
+                });
+                addLog(`OrbitDB Block #${data.block.index} mined successfully (hash: ${data.block.hash.slice(0, 16)}...) — replicated across mesh`, "success");
                 void fetchAnalytics();
             } else {
-                setMineResult({ success: false, message: "No pending transactions in local ledger" });
-                addLog("Mining skipped: no pending transactions in local IndexedDB chain", "warn");
+                setMineResult({ success: false, message: data.message || "No pending transactions in ledger" });
+                addLog("Mining skipped: no pending transactions in OrbitDB ledger", "warn");
             }
-        } catch {
-            addLog("Client-side mining failed", "error");
+        } catch (error: any) {
+            const errMsg = error.response?.data?.error || "Mining failed";
+            setMineResult({ success: false, message: errMsg });
+            addLog(`Decentralized mining failed: ${errMsg}`, "error");
         } finally {
             setMineLoading(false);
         }
@@ -736,34 +749,34 @@ export default function AdminDashboard() {
                                 <Database className="w-4 h-4 text-indigo-500" />
                                 <h2 className="text-sm font-bold tracking-tight text-foreground">Ledger Integration</h2>
                             </div>
-                            <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border bg-emerald-500/10 text-emerald-600 border-emerald-500/20`}>
+                            <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border bg-indigo-500/10 text-indigo-600 border-indigo-500/20`}>
                                 <Wifi className="w-3.5 h-3.5" />
-                                IndexedDB · Client-Side
+                                OrbitDB · Decentralized
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Local Chain Height</p>
+                                <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">OrbitDB Chain Height</p>
                                 <p className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
-                                    {blocks.length} blocks
+                                    {analytics?.blockchain.length ?? 1} blocks
                                 </p>
                             </div>
                             <div>
                                 <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Pending Ledger TXs</p>
                                 <p className="text-xl font-bold font-mono text-amber-500 mt-0.5">
-                                    {pending.length} items
+                                    {analytics?.blockchain.pendingTransactions ?? 0} items
                                 </p>
                             </div>
                         </div>
 
                         <div className="flex items-center justify-between gap-4 pt-2">
                             <span className="text-[10px] text-muted-foreground/80 max-w-[65%]">
-                                PoW mining runs in a Web Worker — zero gas, instant, stored in IndexedDB.
+                                PoW mining runs on replicated OrbitDB nodes — distributed, fault-tolerant, and persistent.
                             </span>
                             <button
                                 onClick={handleMine}
-                                disabled={mineLoading || isMining || pending.length === 0}
+                                disabled={mineLoading || (analytics?.blockchain.pendingTransactions ?? 0) === 0}
                                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-black text-xs font-bold transition-all shadow-md shadow-amber-500/10 active:scale-95 cursor-pointer"
                             >
                                 {mineLoading ? (

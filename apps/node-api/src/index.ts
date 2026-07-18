@@ -24,7 +24,7 @@ httpServer.on("request", (req, res) => {
     void handleHttp(req, res);
 });
 
-/** Hard-delete all messages whose 24-hour TTL has passed */
+/** Hard-delete ONLY truly expired messages (those whose 24-hour TTL has passed: expiresAt <= now) and prune old blockchain entries */
 async function purgeExpiredMessages(): Promise<void> {
     const now = new Date();
     const [msgs, dms] = await Promise.all([
@@ -33,10 +33,17 @@ async function purgeExpiredMessages(): Promise<void> {
     ]);
     if (msgs.count > 0 || dms.count > 0) {
         console.log(
-            `[self-destruct] Purged ${msgs.count} messages + ${dms.count} DMs at ${now.toISOString()}`
+            `[self-destruct] Purged ${msgs.count} expired messages + ${dms.count} expired DMs at ${now.toISOString()}`
         );
     } else {
-        console.log(`[cron] Midnight purge ran — no expired messages at ${now.toISOString()}`);
+        console.log(`[cron] Midnight purge ran — no expired self-destruct messages found at ${now.toISOString()}`);
+    }
+
+    try {
+        const { blockchainLogger } = await import("./lib/blockchain");
+        await blockchainLogger.pruneExpiredData();
+    } catch (err) {
+        console.error("[self-destruct] Failed to prune expired blockchain entries:", err);
     }
 }
 
