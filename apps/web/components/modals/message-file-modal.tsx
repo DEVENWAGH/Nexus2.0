@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -32,11 +32,11 @@ import { Spinner } from "../ui/spinner";
 import { useModal } from "@/hooks/use-mode-store";
 import { useAuth } from "@/hooks/use-auth";
 import {
-    extractBase64,
+    assertWithinMessageFileImageLimit,
     prepareImageFileForSteg,
-    uploadEncodedStegImage,
     uploadMessageFile,
 } from "@/lib/steg-utils";
+import { encodeSteg } from "@/lib/client-steg";
 import { useQueryClient } from "@tanstack/react-query";
 import { upsertChatMessage } from "@/lib/chat-cache";
 
@@ -84,56 +84,6 @@ const STEG_TYPE_META: Record<Exclude<StegFileType, null>, { label: string; icon:
     audio: { label: "audio", icon: <Music className="w-4 h-4 shrink-0" />, technique: "append steganography" },
     video: { label: "video", icon: <Video className="w-4 h-4 shrink-0" />, technique: "append steganography" },
     pdf: { label: "PDF", icon: <FileText className="w-4 h-4 shrink-0" />, technique: "post-EOF steganography" },
-};
-
-/** Encode endpoints for each type. */
-const STEG_ENCODE_ENDPOINTS: Record<Exclude<StegFileType, null>, string> = {
-    image: "/api/steganography/encode-base64",
-    audio: "/api/steganography/encode-audio",
-    video: "/api/steganography/encode-video",
-    pdf: "/api/steganography/encode-pdf",
-};
-
-const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = (error) => reject(error);
-    });
-};
-
-const urlToBase64 = async (url: string): Promise<string> => {
-    if (url.startsWith("data:image/")) {
-        return extractBase64(url);
-    }
-    const resp = await fetch(url);
-    if (!resp.ok) {
-        throw new Error("Failed to fetch image for encoding");
-    }
-    const blob = await resp.blob();
-    const dataUrl = await fileToBase64(new File([blob], "image", { type: blob.type }));
-    return extractBase64(dataUrl);
-};
-
-/** Convert a file or blob URL to raw base64 for non-image types. */
-const fileOrUrlToBase64 = async (fileUrl: string, localFile: File | null): Promise<string> => {
-    if (localFile) {
-        const dataUrl = await fileToBase64(localFile);
-        return extractBase64(dataUrl);
-    }
-    if (fileUrl.startsWith("blob:")) {
-        const resp = await fetch(fileUrl);
-        const blob = await resp.blob();
-        const dataUrl = await fileToBase64(new File([blob], "file", { type: blob.type }));
-        return extractBase64(dataUrl);
-    }
-    // Remote URL â€” fetch and convert
-    const resp = await fetch(fileUrl);
-    if (!resp.ok) throw new Error("Failed to fetch file for encoding");
-    const blob = await resp.blob();
-    const dataUrl = await fileToBase64(new File([blob], "file", { type: blob.type }));
-    return extractBase64(dataUrl);
 };
 
 const MessageFileModal = () => {
@@ -209,93 +159,62 @@ const MessageFileModal = () => {
             if (willEncode && stegType) {
                 setIsEncoding(true);
 
-                if (stegType === "image") {
-                    // â”€â”€ Image steganography (existing LSB flow) â”€â”€
-                    const sourceFile = localFile ? await prepareImageFileForSteg(localFile) : null;
-                    const rawDataUrl = sourceFile ? await fileToBase64(sourceFile) : null;
-                    const imageB64 = rawDataUrl
-                        ? extractBase64(rawDataUrl)
-                        : await urlToBase64(values.fileUrl);
-
-                    if (!imageB64) {
-                        throw new Error("Could not read image data for encoding");
-                    }
-
-                    const res = await axios.post("/api/steganography/encode-base64", {
-                        image_b64: imageB64,
-                        secret_text: secretMsg.trim(),
-                        ...(stegPassword.trim() ? { password: stegPassword.trim() } : {}),
-                    });
-
-                    const encodedB64 = res.data.encoded_image ?? res.data.encoded_b64;
-                    if (!encodedB64) {
-                        throw new Error("Encode response missing image data");
-                    }
-
-                    const uploadedUrl = await uploadEncodedStegImage(encodedB64);
-
-                    response = await axios.post(
-                        url,
-                        { fileUrl: uploadedUrl, content: "" },
-                        { headers: { ...(userId ? { "X-User-Id": userId } : {}) } },
-                    );
+                // Get or fetch the source File object for client-side encoding
+                let sourceFile: File;
+                if (localFile) {
+                    sourceFile = localFile;
+                } else if (values.fileUrl.startsWith("blob:")) {
+                    const resp = await fetch(values.fileUrl);
+                    const blob = await resp.blob();
+                    sourceFile = new File([blob], "file", { type: blob.type });
                 } else {
-                    // â”€â”€ Audio / Video / PDF steganography (append-based) â”€â”€
-                    const fileB64 = await fileOrUrlToBase64(values.fileUrl, localFile);
-
-                    if (!fileB64) {
-                        throw new Error("Could not read file data for encoding");
-                    }
-
-                    const endpoint = STEG_ENCODE_ENDPOINTS[stegType];
-                    const bodyFieldMap: Record<string, string> = {
-                        audio: "audio_b64",
-                        video: "video_b64",
-                        pdf: "pdf_b64",
-                    };
-
-                    const res = await axios.post(endpoint, {
-                        [bodyFieldMap[stegType] ?? "audio_b64"]: fileB64,
-                        secret_text: secretMsg.trim(),
-                        ...(stegPassword.trim() ? { password: stegPassword.trim() } : {}),
-                    });
-
-                    const encodedB64 = res.data.encoded_b64;
-                    if (!encodedB64) {
-                        throw new Error("Encode response missing file data");
-                    }
-
-                    // Convert base64 to File and upload via Pinata/IPFS
-                    const mimeTypes: Record<string, string> = {
-                        audio: localFile?.type || "audio/mpeg",
-                        video: localFile?.type || "video/mp4",
-                        pdf: "application/pdf",
-                    };
-                    const extensions: Record<string, string> = {
-                        audio: "mp3",
-                        video: "mp4",
-                        pdf: "pdf",
-                    };
-
-                    const binary = atob(encodedB64);
-                    const bytes = new Uint8Array(binary.length);
-                    for (let i = 0; i < binary.length; i++) {
-                        bytes[i] = binary.charCodeAt(i);
-                    }
-                    const encodedFile = new File(
-                        [bytes],
-                        `hidden_message.${extensions[stegType]}`,
-                        { type: mimeTypes[stegType] },
-                    );
-
-                    const uploadedUrl = await uploadMessageFile(encodedFile);
-
-                    response = await axios.post(
-                        url,
-                        { fileUrl: uploadedUrl, content: "" },
-                        { headers: { ...(userId ? { "X-User-Id": userId } : {}) } },
-                    );
+                    const resp = await fetch(values.fileUrl);
+                    if (!resp.ok) throw new Error("Failed to fetch file for steganography encoding");
+                    const blob = await resp.blob();
+                    sourceFile = new File([blob], "file", { type: blob.type });
                 }
+
+                if (stegType === "image") {
+                    sourceFile = await prepareImageFileForSteg(sourceFile);
+                }
+
+                // Client-side steganography via Web Worker
+                const encodedBlob = await encodeSteg(
+                    sourceFile,
+                    secretMsg.trim(),
+                    stegPassword.trim() || undefined,
+                );
+
+                const mimeTypes: Record<Exclude<StegFileType, null>, string> = {
+                    image: "image/png",
+                    audio: localFile?.type || "audio/mpeg",
+                    video: localFile?.type || "video/mp4",
+                    pdf: "application/pdf",
+                };
+                const extensions: Record<Exclude<StegFileType, null>, string> = {
+                    image: "png",
+                    audio: "mp3",
+                    video: "mp4",
+                    pdf: "pdf",
+                };
+
+                const encodedFile = new File(
+                    [encodedBlob],
+                    `hidden_message.${extensions[stegType]}`,
+                    { type: mimeTypes[stegType] },
+                );
+
+                if (stegType === "image") {
+                    assertWithinMessageFileImageLimit(encodedFile);
+                }
+
+                const uploadedUrl = await uploadMessageFile(encodedFile);
+
+                response = await axios.post(
+                    url,
+                    { fileUrl: uploadedUrl, content: "" },
+                    { headers: { ...(userId ? { "X-User-Id": userId } : {}) } },
+                );
             } else {
                 let fileUrlToSend = values.fileUrl;
                 if (localFile && fileUrlToSend.startsWith("blob:")) {
