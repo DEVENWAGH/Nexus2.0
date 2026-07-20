@@ -1,5 +1,7 @@
 import { encryptMessage, decryptMessage } from "./encryption";
+import { ISignalingClient } from "./signaling-interface";
 import { SignalingClient } from "./signaling-client";
+import { GossipSubSignalingClient } from "./gossipsub-signaling";
 import {
     computeBufferHash,
     getFileChunk,
@@ -16,13 +18,15 @@ import type {
 } from "./types";
 
 export type P2PMeshOptions = {
-    signalingUrl: string;
+    signalingUrl?: string;
+    signalingType?: "websocket" | "gossipsub";
     roomId: string;
     peerId: string;
     userId?: string;
     /** When true, payloads on the wire are AES-GCM encrypted with roomId as channel key */
     encrypt?: boolean;
     iceServers?: RTCIceServer[];
+    signalingClient?: ISignalingClient;
 };
 
 type PeerConnection = {
@@ -37,7 +41,7 @@ const DEFAULT_ICE: RTCIceServer[] = [
 
 export class P2PMesh {
     private readonly options: P2PMeshOptions;
-    private signaling: SignalingClient | null = null;
+    private signaling: ISignalingClient | null = null;
     private peers = new Map<string, PeerConnection>();
     private listeners = new Map<keyof P2PMeshEvents, Set<P2PMeshEvents[keyof P2PMeshEvents]>>();
     private joined = false;
@@ -56,6 +60,7 @@ export class P2PMesh {
         this.options = {
             encrypt: true,
             iceServers: DEFAULT_ICE,
+            signalingType: options.signalingType || "gossipsub",
             ...options,
         };
     }
@@ -80,12 +85,23 @@ export class P2PMesh {
     async join(): Promise<void> {
         if (this.joined) return;
 
-        this.signaling = new SignalingClient({
-            url: this.options.signalingUrl,
-            onMessage: (msg) => this.handleSignaling(msg),
-            onError: () =>
-                this.emit("error", new Error("Signaling connection failed")),
-        });
+        if (this.options.signalingClient) {
+            this.signaling = this.options.signalingClient;
+        } else if (this.options.signalingType === "gossipsub") {
+            this.signaling = new GossipSubSignalingClient({
+                peerId: this.options.peerId,
+                roomId: this.options.roomId,
+                onMessage: (msg) => this.handleSignaling(msg),
+                onError: () => this.emit("error", new Error("GossipSub signaling connection failed")),
+            });
+        } else {
+            this.signaling = new SignalingClient({
+                url: this.options.signalingUrl || "ws://localhost:3001",
+                onMessage: (msg) => this.handleSignaling(msg),
+                onError: () =>
+                    this.emit("error", new Error("Signaling connection failed")),
+            });
+        }
 
         await this.signaling.connectAsync();
 

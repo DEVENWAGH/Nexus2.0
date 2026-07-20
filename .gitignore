@@ -1,15 +1,27 @@
 # dependencies
-/node_modules
-/dist
-.turbo
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.turbo/
+**/.turbo/
+
 # next.js
-/.next/
-/out/
+.next/
+**/.next/
+out/
+**/out/
 
 # production
-/build
+build/
+**/build/
 
 # env
 .env.production
 .env
 .env.local
+.env*.local
+
+# OS / IDE
+.DS_Store
+*.log

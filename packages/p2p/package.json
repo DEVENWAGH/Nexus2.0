@@ -25,5 +25,12 @@
         "@types/node": "^22.0.0",
         "eslint": "^9.0.0",
         "typescript": "^5"
+    },
+    "dependencies": {
+        "@chainsafe/libp2p-gossipsub": "^14.1.2",
+        "@libp2p/noise": "^1.0.1",
+        "@libp2p/websockets": "^10.1.16",
+        "@libp2p/yamux": "^8.0.1",
+        "libp2p": "^3.3.5"
     }
 }

@@ -10,6 +10,7 @@ import { blockchainLogger } from "./lib/blockchain";
 import { localBlockchain } from "./lib/local-blockchain";
 import { normalizeImageBase64 } from "./lib/steganography";
 import { broadcastMessage, broadcastMessageUpdate, isUserLive, getOnlineUsersForServer, getActiveRoomPeers } from "./socket";
+import { unpinFromPinata, unpinMultipleFromPinata } from "./lib/pinata";
 import { setCookie } from "hono/cookie";
 import { sign } from "hono/jwt";
 import crypto from "crypto";
@@ -388,6 +389,12 @@ export function createApp(io: SocketIOServer) {
             }
         }
 
+        if (existing.fileUrl) {
+            unpinFromPinata(existing.fileUrl).catch((err) =>
+                console.error("[Pinata] Error unpinning message attachment:", err)
+            );
+        }
+
         const message = await prisma.message.update({
             where: { id: messageId },
             data: {
@@ -550,6 +557,12 @@ export function createApp(io: SocketIOServer) {
 
         const convId = conversationId ?? existing.conversationId;
 
+        if (existing.fileUrl) {
+            unpinFromPinata(existing.fileUrl).catch((err) =>
+                console.error("[Pinata] Error unpinning direct message attachment:", err)
+            );
+        }
+
         const message = await prisma.directMessage.update({
             where: { id: messageId },
             data: {
@@ -702,6 +715,14 @@ export function createApp(io: SocketIOServer) {
         });
         if (!member || member.role !== "ADMIN") {
             return c.json({ error: "Not authorized" }, 403);
+        }
+
+        const serverMsgs = await prisma.message.findMany({
+            where: { channel: { serverId }, fileUrl: { not: null } },
+            select: { fileUrl: true },
+        });
+        if (serverMsgs.length > 0) {
+            await unpinMultipleFromPinata(serverMsgs.map((m) => m.fileUrl));
         }
 
         await prisma.server.delete({ where: { id: serverId } });
@@ -914,6 +935,14 @@ export function createApp(io: SocketIOServer) {
             return c.json({ error: "Not authorized" }, 403);
         }
 
+        const channelMsgs = await prisma.message.findMany({
+            where: { channelId, fileUrl: { not: null } },
+            select: { fileUrl: true },
+        });
+        if (channelMsgs.length > 0) {
+            await unpinMultipleFromPinata(channelMsgs.map((m) => m.fileUrl));
+        }
+
         await prisma.channel.delete({ where: { id: channelId } });
         return c.json({ success: true });
     });
@@ -994,6 +1023,24 @@ export function createApp(io: SocketIOServer) {
         }
         if (memberId === requester.id) {
             return c.json({ error: "Cannot kick yourself" }, 400);
+        }
+
+        const [memberMsgs, memberDMs] = await Promise.all([
+            prisma.message.findMany({
+                where: { memberId, fileUrl: { not: null } },
+                select: { fileUrl: true },
+            }),
+            prisma.directMessage.findMany({
+                where: { memberId, fileUrl: { not: null } },
+                select: { fileUrl: true },
+            }),
+        ]);
+        const fileUrlsToUnpin = [
+            ...memberMsgs.map((m) => m.fileUrl),
+            ...memberDMs.map((d) => d.fileUrl),
+        ];
+        if (fileUrlsToUnpin.length > 0) {
+            await unpinMultipleFromPinata(fileUrlsToUnpin);
         }
 
         await prisma.member.delete({ where: { id: memberId } });
@@ -1141,6 +1188,28 @@ export function createApp(io: SocketIOServer) {
 
         const now = new Date();
 
+        try {
+            const [expiredMsgs, expiredDMs] = await Promise.all([
+                prisma.message.findMany({
+                    where: { expiresAt: { lte: now }, fileUrl: { not: null } },
+                    select: { fileUrl: true },
+                }),
+                prisma.directMessage.findMany({
+                    where: { expiresAt: { lte: now }, fileUrl: { not: null } },
+                    select: { fileUrl: true },
+                }),
+            ]);
+            const fileUrls = [
+                ...expiredMsgs.map((m) => m.fileUrl),
+                ...expiredDMs.map((d) => d.fileUrl),
+            ];
+            if (fileUrls.length > 0) {
+                await unpinMultipleFromPinata(fileUrls);
+            }
+        } catch (err) {
+            console.error("[internal-purge] Failed to unpin expired files:", err);
+        }
+
         const [deletedMessages, deletedDMs] = await Promise.all([
             prisma.message.deleteMany({
                 where: { expiresAt: { lte: now } }, // ONLY messages whose 24h TTL has passed
@@ -1172,6 +1241,28 @@ export function createApp(io: SocketIOServer) {
     app.post("/api/admin/purge-expired", async (c) => {
         const now = new Date();
         try {
+            try {
+                const [msgsToPurge, dmsToPurge] = await Promise.all([
+                    prisma.message.findMany({
+                        where: { expiresAt: { not: null }, fileUrl: { not: null } },
+                        select: { fileUrl: true },
+                    }),
+                    prisma.directMessage.findMany({
+                        where: { expiresAt: { not: null }, fileUrl: { not: null } },
+                        select: { fileUrl: true },
+                    }),
+                ]);
+                const fileUrls = [
+                    ...msgsToPurge.map((m) => m.fileUrl),
+                    ...dmsToPurge.map((d) => d.fileUrl),
+                ];
+                if (fileUrls.length > 0) {
+                    await unpinMultipleFromPinata(fileUrls);
+                }
+            } catch (err) {
+                console.error("[admin-purge] Failed to unpin files:", err);
+            }
+
             const [deletedMessages, deletedDMs] = await Promise.all([
                 prisma.message.deleteMany({
                     where: { expiresAt: { not: null } }, // all self-destruct messages
@@ -1240,37 +1331,7 @@ export function createApp(io: SocketIOServer) {
 
 
 
-    // â”€â”€ Internal: purge expired messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // Call this endpoint to hard-delete messages whose 24-hour TTL has passed.
-    app.get("/api/internal/purge-expired", async (c) => {
-        const secret = c.req.header("X-Internal-Secret");
-        const expectedSecret = process.env.INTERNAL_SECRET ?? "nexus-internal";
-        if (secret !== expectedSecret) {
-            return c.json({ error: "Unauthorized" }, 401);
-        }
-
-        const now = new Date();
-
-        const [deletedMessages, deletedDMs] = await Promise.all([
-            prisma.message.deleteMany({
-                where: { expiresAt: { lte: now } },
-            }),
-            prisma.directMessage.deleteMany({
-                where: { expiresAt: { lte: now } },
-            }),
-        ]);
-        console.log(
-            `[purge-expired] Deleted ${deletedMessages.count} messages + ${deletedDMs.count} DMs at ${now.toISOString()}`
-        );
-
-        return c.json({
-            purgedAt: now.toISOString(),
-            deletedMessages: deletedMessages.count,
-            deletedDirectMessages: deletedDMs.count,
-        });
-    });
-
-    // â”€â”€ Admin: Platform Analytics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Admin: Platform Analytics ──────────────────────────────────────────────
     // GET /api/admin/platform-analytics
     // Returns platform-wide aggregate analytics: total profiles, servers, messages, etc.
     app.get("/api/admin/platform-analytics", async (c) => {

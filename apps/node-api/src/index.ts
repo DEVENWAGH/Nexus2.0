@@ -24,9 +24,34 @@ httpServer.on("request", (req, res) => {
     void handleHttp(req, res);
 });
 
+import { unpinMultipleFromPinata } from "./lib/pinata";
+
 /** Hard-delete ONLY truly expired messages (those whose 24-hour TTL has passed: expiresAt <= now) and prune old blockchain entries */
 async function purgeExpiredMessages(): Promise<void> {
     const now = new Date();
+
+    try {
+        const [expiredMsgs, expiredDMs] = await Promise.all([
+            prisma.message.findMany({
+                where: { expiresAt: { lte: now }, fileUrl: { not: null } },
+                select: { fileUrl: true },
+            }),
+            prisma.directMessage.findMany({
+                where: { expiresAt: { lte: now }, fileUrl: { not: null } },
+                select: { fileUrl: true },
+            }),
+        ]);
+        const fileUrls = [
+            ...expiredMsgs.map((m) => m.fileUrl),
+            ...expiredDMs.map((d) => d.fileUrl),
+        ];
+        if (fileUrls.length > 0) {
+            await unpinMultipleFromPinata(fileUrls);
+        }
+    } catch (err) {
+        console.error("[self-destruct] Error unpinning expired files from Pinata:", err);
+    }
+
     const [msgs, dms] = await Promise.all([
         prisma.message.deleteMany({ where: { expiresAt: { lte: now } } }),
         prisma.directMessage.deleteMany({ where: { expiresAt: { lte: now } } }),

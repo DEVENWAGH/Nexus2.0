@@ -1,5 +1,7 @@
 export * from "./encryption";
+export * from "./signaling-interface";
 export * from "./signaling-client";
+export * from "./gossipsub-signaling";
 export * from "./p2p-mesh";
 export * from "./types";
 export * from "./file-transfer";

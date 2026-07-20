@@ -1,14 +1,9 @@
 import type { SignalingMessage, SignalingServerMessage } from "./types";
+import type { ISignalingClient, SignalingClientOptions } from "./signaling-interface";
 
-export type SignalingClientOptions = {
-    url: string;
-    onMessage: (message: SignalingServerMessage) => void;
-    onOpen?: () => void;
-    onClose?: () => void;
-    onError?: (error: Event) => void;
-};
+export type { SignalingClientOptions };
 
-export class SignalingClient {
+export class SignalingClient implements ISignalingClient {
     private ws: WebSocket | null = null;
     private readonly options: SignalingClientOptions;
 
@@ -21,7 +16,8 @@ export class SignalingClient {
             return;
         }
 
-        this.ws = new WebSocket(this.options.url);
+        const url = this.options.url || "ws://localhost:3001";
+        this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
             this.options.onOpen?.();

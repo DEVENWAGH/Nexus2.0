@@ -66,8 +66,10 @@ const httpServer = createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
         JSON.stringify({
-            service: "nexus-p2p-signaling",
+            service: "nexus-p2p-gossipsub-bootstrap-relay",
+            mode: "decentralized-gossipsub-relay",
             status: "ok",
+            metadataLogging: "disabled",
             rooms: rooms.size,
             peers: [...rooms.values()].reduce((n, r) => n + r.size, 0),
         }),
@@ -120,8 +122,6 @@ wss.on("connection", (ws) => {
                         send(peer.ws, { type: "peer-joined", peerId, userId });
                     }
                 }
-
-                console.log(`[signaling] ${peerId} joined room ${roomId} (${room.size} peers)`);
                 break;
             }
 
@@ -130,7 +130,6 @@ wss.on("connection", (ws) => {
                 if (meta) {
                     removePeer(meta.roomId, meta.peerId);
                     socketRooms.delete(ws);
-                    console.log(`[signaling] ${meta.peerId} left room ${meta.roomId}`);
                 }
                 break;
             }
@@ -161,16 +160,16 @@ wss.on("connection", (ws) => {
         if (meta) {
             removePeer(meta.roomId, meta.peerId);
             socketRooms.delete(ws);
-            console.log(`[signaling] ${meta.peerId} disconnected from ${meta.roomId}`);
         }
     });
 });
 
 httpServer.listen(PORT, () => {
     console.log("=".repeat(60));
-    console.log("  Nexus P2P Signaling Server (Node.js)");
-    console.log(`  WebSocket: ws://localhost:${PORT}`);
-    console.log(`  Health:    http://localhost:${PORT}/`);
-    console.log("  Relay only — no message storage");
+    console.log("  Nexus P2P GossipSub Bootstrap & Relay Node");
+    console.log(`  WebSocket Relay: ws://localhost:${PORT}`);
+    console.log(`  Health Check:    http://localhost:${PORT}/`);
+    console.log("  Mode:             Decentralized GossipSub Mesh Relay");
+    console.log("  Privacy:          Zero connection metadata logging");
     console.log("=".repeat(60));
 });
