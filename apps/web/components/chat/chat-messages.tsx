@@ -57,7 +57,7 @@ const ChatMessages = ({
     useChatScroll({
         bottomRef: bottomRef as React.RefObject<HTMLDivElement>,
         chatRef: chatRef as React.RefObject<HTMLDivElement>,
-        count: data?.pages?.[0].items.length ?? 0,
+        count: data?.pages?.[0]?.items?.length ?? 0,
         loadMore: fetchNextPage,
         shouldLoadMore: !isFetchingNextPage && !!hasNextPage,
     });
@@ -112,7 +112,7 @@ const ChatMessages = ({
                 <div className="flex flex-col-reverse mt-auto">
                     {data?.pages?.map((group, i) => (
                         <Fragment key={i}>
-                            {group.items.map(
+                            {group?.items?.map(
                                 (message: MessageWithMemberProfile) => (
                                     <ChatItem
                                         key={message.id}

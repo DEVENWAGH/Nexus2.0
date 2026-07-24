@@ -28,14 +28,14 @@ interface ChatItemProps {
     id: string;
     content: string;
     chatId?: string;
-    member: Member & {
+    member?: (Member & {
         profile: Profile;
-    };
+    }) | null;
     timestamp: string;
     rawTimestamp?: Date | string;
     fileUrl: string | null;
     deleted: boolean;
-    currentMember: Member;
+    currentMember?: Member | null;
     isUpdated?: boolean;
     socketUrl: string;
     socketQuery: Record<string, string>;
@@ -308,6 +308,9 @@ const ChatItem = ({
     const { onOpen } = useModal();
 
     function onMemberClick() {
+        if (!member?.id || !currentMember?.id) {
+            return;
+        }
         if (member.id === currentMember.id) {
             return;
         }
@@ -352,9 +355,9 @@ const ChatItem = ({
         }
     }, [fileUrl]);
 
-    const isAdmin = currentMember.role === MemberRole.ADMIN;
-    const isModerator = currentMember.role === MemberRole.MODERATOR;
-    const isOwner = currentMember.id == member.id;
+    const isAdmin = currentMember?.role === MemberRole.ADMIN;
+    const isModerator = currentMember?.role === MemberRole.MODERATOR;
+    const isOwner = currentMember?.id && member?.id ? currentMember.id === member.id : false;
     const canDeleteMessage = !deleted && (isAdmin || isModerator || isOwner);
     const isPDF = fileType === "pdf" && fileUrl;
     const isImage = fileType === "image" && fileUrl;
@@ -410,7 +413,7 @@ const ChatItem = ({
                     onClick={onMemberClick}
                     className="cursor-pointer hover:drop-shadow-md transition"
                 >
-                    <UserAvatar src={member.profile.imageUrl} />
+                    <UserAvatar src={member?.profile?.imageUrl} />
                 </div>
                 <div className="flex flex-col w-full min-w-0">
                     <div className="flex items-center gap-x-2">
@@ -419,11 +422,13 @@ const ChatItem = ({
                                 onClick={onMemberClick}
                                 className="font-semibold text-sm hover:underline cursor-pointer"
                             >
-                                {member.profile.name}
+                                {member?.profile?.name || "Unknown User"}
                             </p>
-                            <ActionTooltip label={member.role}>
-                                {roleIconMap[member.role]}
-                            </ActionTooltip>
+                            {member?.role && roleIconMap[member.role] && (
+                                <ActionTooltip label={member.role}>
+                                    {roleIconMap[member.role]}
+                                </ActionTooltip>
+                            )}
                         </div>
                         <span className="text-xs text-zinc-500 dark:text-zinc-400">
                             {timestamp}
