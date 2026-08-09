@@ -6,8 +6,10 @@ import {
     ShieldCheck, Timer, Activity, Network, RefreshCw,
     Cpu, Award, Zap, AlertCircle, ArrowLeft, User, Key,
     Fingerprint, AlertTriangle, CheckCircle2, XCircle,
-    Eye, EyeOff, Copy, Check, Info, Sun, Moon, SunMoon
+    Eye, EyeOff, Copy, Check, Info, Sun, Moon, SunMoon,
+    GitBranch, Repeat
 } from "lucide-react";
+import type { RelayStats, RouteEntry } from "@repo/p2p";
 import { motion, AnimatePresence } from "motion/react";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/hooks/use-auth";
@@ -95,10 +97,19 @@ export default function AnalyticsPage() {
     const router = useRouter();
     const params = useParams();
     const serverId = params?.serverId as string;
-    const { isReady, connectedPeers } = useP2PChat({
+    const { isReady, connectedPeers, mesh } = useP2PChat({
         roomId: `server-lobby:${serverId}`,
         enabled: true,
     });
+
+    // ── Relay routing stats ───────────────────────────────────────────────
+    const [relayStats, setRelayStats] = useState<RelayStats>({
+        forwarded: 0,
+        dropped: 0,
+        cacheSize: 0,
+        routeTableSize: 0,
+    });
+    const [routeTable, setRouteTable] = useState<[string, RouteEntry][]>([]);
     const { userId } = useAuth();
 
     const [activeTab, setActiveTab] = useState<Tab>("performance");
@@ -182,6 +193,21 @@ export default function AnalyticsPage() {
         }, 2000);
         return () => clearInterval(iv);
     }, []);
+
+    // Poll relay stats from mesh instance
+    useEffect(() => {
+        if (!mesh) return;
+        const iv = setInterval(() => {
+            setRelayStats(mesh.getRelayStats());
+            const rt = mesh.getRouteTable();
+            setRouteTable(Array.from(rt.entries()));
+        }, 3000);
+        // Initial fetch
+        setRelayStats(mesh.getRelayStats());
+        const rt = mesh.getRouteTable();
+        setRouteTable(Array.from(rt.entries()));
+        return () => clearInterval(iv);
+    }, [mesh]);
 
     const handleTestSign = async () => {
         const result = await sign("nexus-identity-test-payload");
@@ -662,6 +688,114 @@ export default function AnalyticsPage() {
                                             <div className="flex items-center gap-1.5"><div className="h-1.5 w-5 bg-emerald-500 rounded" /> Secure link</div>
                                             <div className="flex items-center gap-1.5"><div className="h-1.5 w-5 bg-indigo-500 rounded" /> Standard P2P</div>
                                             <div className="flex items-center gap-1.5"><div className="h-1.5 w-5 bg-pink-500 rounded" /> Cross-peer relay</div>
+                                        </div>
+                                    </div>
+
+                                    {/* ── Relay Routing Diagnostics ──────────────────── */}
+                                    <div className="bg-card border border-border rounded-2xl p-6 flex flex-col gap-5 shadow-sm text-card-foreground mt-5">
+                                        <div className="flex items-start justify-between border-b border-border pb-3">
+                                            <h3 className="text-sm font-semibold text-indigo-500 dark:text-indigo-400 font-mono flex items-center gap-2">
+                                                <GitBranch className="h-4 w-4" /> Multi-Hop Relay Routing
+                                            </h3>
+                                            <div className="flex items-center gap-2">
+                                                <div className={cn(
+                                                    "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono border",
+                                                    mesh?.relayEnabled
+                                                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                                                        : "bg-muted border-border text-muted-foreground"
+                                                )}>
+                                                    <div className={cn(
+                                                        "h-1.5 w-1.5 rounded-full",
+                                                        mesh?.relayEnabled ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"
+                                                    )} />
+                                                    {mesh?.relayEnabled ? "Active" : "Disabled"}
+                                                </div>
+                                                <InfoTooltip content="Multi-hop relay routing enables messages to reach peers that cannot form a direct WebRTC connection by bouncing through intermediate nodes. Each relay envelope is cryptographically signed to prevent forgery." />
+                                            </div>
+                                        </div>
+
+                                        {/* Relay Stats Grid */}
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                            {[
+                                                {
+                                                    label: "Forwarded",
+                                                    value: relayStats.forwarded,
+                                                    color: "text-emerald-600 dark:text-emerald-400",
+                                                    icon: Repeat,
+                                                    sub: "Envelopes relayed through this node",
+                                                },
+                                                {
+                                                    label: "Dropped",
+                                                    value: relayStats.dropped,
+                                                    color: "text-rose-600 dark:text-rose-400",
+                                                    icon: XCircle,
+                                                    sub: "Dedup / TTL / loop / expired",
+                                                },
+                                                {
+                                                    label: "Dedup Cache",
+                                                    value: relayStats.cacheSize,
+                                                    color: "text-amber-600 dark:text-amber-400",
+                                                    icon: Activity,
+                                                    sub: "Seen relay IDs (LRU, 60s TTL)",
+                                                },
+                                                {
+                                                    label: "Known Routes",
+                                                    value: relayStats.routeTableSize,
+                                                    color: "text-indigo-600 dark:text-indigo-400",
+                                                    icon: GitBranch,
+                                                    sub: "Passively learned peer routes",
+                                                },
+                                            ].map((stat) => (
+                                                <div key={stat.label} className="bg-secondary/30 border border-border rounded-xl p-3 flex flex-col gap-1.5">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">{stat.label}</span>
+                                                        <stat.icon className={cn("h-3.5 w-3.5", stat.color)} />
+                                                    </div>
+                                                    <div className={cn("text-2xl font-bold font-mono", stat.color)}>{stat.value}</div>
+                                                    <p className="text-[9px] text-muted-foreground/70 font-mono">{stat.sub}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Route Table */}
+                                        <div className="flex flex-col gap-2">
+                                            <h4 className="text-xs font-semibold text-foreground font-mono flex items-center gap-1.5">
+                                                <Network className="h-3.5 w-3.5 text-indigo-500" /> Route Table
+                                                <span className="text-[10px] text-muted-foreground font-normal ml-1">(passively learned from relay paths)</span>
+                                            </h4>
+                                            {routeTable.length === 0 ? (
+                                                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-secondary/20 border border-border text-xs font-mono text-muted-foreground">
+                                                    <Info className="h-3.5 w-3.5 flex-shrink-0" />
+                                                    No routes discovered yet. Routes are learned passively as relay envelopes traverse the mesh.
+                                                </div>
+                                            ) : (
+                                                <div className="bg-secondary/20 border border-border rounded-xl overflow-hidden">
+                                                    <div className="grid grid-cols-3 gap-2 px-4 py-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground border-b border-border">
+                                                        <span>Destination Peer</span>
+                                                        <span>Via (Next Hop)</span>
+                                                        <span>Hops</span>
+                                                    </div>
+                                                    {routeTable.map(([peerId, entry]) => (
+                                                        <div key={peerId} className="grid grid-cols-3 gap-2 px-4 py-2 text-[11px] font-mono text-foreground border-b border-border/40 last:border-0 hover:bg-secondary/30 transition-colors">
+                                                            <span className="text-indigo-600 dark:text-indigo-400 truncate" title={peerId}>{peerId.slice(0, 12)}...</span>
+                                                            <span className="text-amber-600 dark:text-amber-400 truncate" title={entry.via}>{entry.via.slice(0, 12)}...</span>
+                                                            <span className="flex items-center gap-1">
+                                                                <span className={cn(
+                                                                    "font-bold",
+                                                                    entry.hops <= 1 ? "text-emerald-500" : entry.hops <= 2 ? "text-amber-500" : "text-rose-500"
+                                                                )}>{entry.hops}</span>
+                                                                <span className="text-[9px] text-muted-foreground">hop{entry.hops !== 1 ? "s" : ""}</span>
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* How it works */}
+                                        <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-xl p-3 text-[11px] text-muted-foreground leading-relaxed">
+                                            <span className="text-indigo-500 dark:text-indigo-400 font-semibold">How relay routing works:</span>{" "}
+                                            When a direct WebRTC connection is unavailable, messages are wrapped in ECDSA-signed relay envelopes and forwarded through intermediate peers. Each node verifies the signature, checks TTL and dedup, then relays to the next hop. Maximum 3 hops (configurable to 5).
                                         </div>
                                     </div>
                                 </motion.div>

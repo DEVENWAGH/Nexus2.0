@@ -9,6 +9,7 @@ import {
     type FileMetadata,
     type FileChunkPayload,
 } from "./file-transfer";
+import { RelayRouter, type RelayEnvelope, type RelayStats, type RouteEntry } from "./relay-router";
 import type {
     P2PChatMessage,
     P2PMeshEvents,
@@ -27,6 +28,14 @@ export type P2PMeshOptions = {
     encrypt?: boolean;
     iceServers?: RTCIceServer[];
     signalingClient?: ISignalingClient;
+    /** Enable multi-hop relay routing (default true) */
+    enableRelay?: boolean;
+    /** Max TTL for relay envelopes (default 3, max 5) */
+    maxRelayTTL?: number;
+    /** ECDSA private key for signing relay envelopes (DID identity key) */
+    didPrivateKey?: CryptoKey;
+    /** The did:key:z... string of this node's public DID */
+    didPublicKeyId?: string;
 };
 
 type PeerConnection = {
@@ -56,13 +65,26 @@ export class P2PMesh {
         }
     >();
 
+    /** Relay router instance — null if relay is disabled */
+    private relayRouter: RelayRouter | null = null;
+
     constructor(options: P2PMeshOptions) {
         this.options = {
             encrypt: true,
             iceServers: DEFAULT_ICE,
             signalingType: options.signalingType || "gossipsub",
+            enableRelay: true,
+            maxRelayTTL: 3,
             ...options,
         };
+
+        // Initialize relay router if enabled
+        if (this.options.enableRelay) {
+            this.relayRouter = new RelayRouter({
+                localPeerId: this.options.peerId,
+                maxTTL: this.options.maxRelayTTL,
+            });
+        }
     }
 
     on<K extends keyof P2PMeshEvents>(event: K, handler: P2PMeshEvents[K]): () => void {
@@ -136,11 +158,15 @@ export class P2PMesh {
         // Echo to self for UI consistency
         this.emit("message", message);
 
+        // ── Direct delivery to all connected peers ──
         for (const [, conn] of this.peers) {
             if (conn.dc?.readyState === "open") {
                 conn.dc.send(envelope);
             }
         }
+
+        // ── Relay delivery for broadcast (reach peers not directly connected) ──
+        await this.relayBroadcast(envelope);
     }
 
     async sendFile(
@@ -163,7 +189,7 @@ export class P2PMesh {
             hash: fileHash,
         };
 
-        // Send metadata to all peers
+        // Send metadata to all peers (direct + relay)
         const metaEnvelope = JSON.stringify({
             kind: "file_metadata",
             payload: JSON.stringify(metadata),
@@ -174,6 +200,9 @@ export class P2PMesh {
                 conn.dc.send(metaEnvelope);
             }
         }
+
+        // Also relay file metadata to unreachable peers
+        await this.relayBroadcast(metaEnvelope);
 
         for (let i = 0; i < totalChunks; i++) {
             const { buffer } = await getFileChunk(file, i, chunkSize);
@@ -248,6 +277,9 @@ export class P2PMesh {
                 ]);
             }
 
+            // Relay file chunks to unreachable peers
+            await this.relayBroadcast(chunkEnvelope);
+
             onProgress?.(Math.round(((i + 1) / totalChunks) * 100));
         }
 
@@ -272,6 +304,9 @@ export class P2PMesh {
         this.signaling?.disconnect();
         this.signaling = null;
         this.joined = false;
+
+        // Clean up relay router
+        this.relayRouter?.destroy();
     }
 
     get connectedPeerCount(): number {
@@ -321,6 +356,30 @@ export class P2PMesh {
         }
         return stats;
     }
+
+    // ── Relay Public API ──────────────────────────────────────────────────────
+
+    /** Get the relay router's route table for analytics display. */
+    getRouteTable(): Map<string, RouteEntry> {
+        return this.relayRouter?.getRouteTable() ?? new Map();
+    }
+
+    /** Get relay statistics (forwarded, dropped, cache size). */
+    getRelayStats(): RelayStats {
+        return this.relayRouter?.getStats() ?? {
+            forwarded: 0,
+            dropped: 0,
+            cacheSize: 0,
+            routeTableSize: 0,
+        };
+    }
+
+    /** Whether relay routing is enabled. */
+    get relayEnabled(): boolean {
+        return this.relayRouter !== null;
+    }
+
+    // ── Signaling ─────────────────────────────────────────────────────────────
 
     private handleSignaling(message: SignalingServerMessage): void {
         switch (message.type) {
@@ -452,77 +511,246 @@ export class P2PMesh {
         }
     }
 
+    // ── Data Channel Message Handling ─────────────────────────────────────────
+
     private async handleDataMessage(raw: string, fromPeerId: string): Promise<void> {
         try {
             const envelope = JSON.parse(raw) as { kind: string; payload: string };
 
-            if (envelope.kind === "file_metadata") {
-                const metadata = JSON.parse(envelope.payload) as FileMetadata;
-                const buffer = new FileReassemblyBuffer(metadata);
-                this.fileBuffers.set(metadata.id, buffer);
-                this.emit("file-metadata", metadata, fromPeerId);
+            // ── Relay envelope handling ──
+            if (envelope.kind === "relay") {
+                await this.handleRelayEnvelope(envelope.payload, fromPeerId);
                 return;
             }
 
-            if (envelope.kind === "file_chunk") {
-                const payload = JSON.parse(envelope.payload) as FileChunkPayload;
-                const buffer = this.fileBuffers.get(payload.fileId);
-                if (!buffer) return;
-
-                const binary = atob(payload.data);
-                const bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) {
-                    bytes[i] = binary.charCodeAt(i);
-                }
-
-                const success = await buffer.addChunk(payload.index, bytes.buffer, payload.hash);
-                if (success) {
-                    const ackEnvelope = JSON.stringify({
-                        kind: "file_ack",
-                        payload: JSON.stringify({ fileId: payload.fileId, index: payload.index }),
-                    });
-                    const peer = this.peers.get(fromPeerId);
-                    if (peer?.dc?.readyState === "open") {
-                        peer.dc.send(ackEnvelope);
-                    }
-
-                    this.emit("file-progress", payload.fileId, buffer.progress, fromPeerId);
-
-                    if (buffer.isComplete) {
-                        const blob = buffer.reconstruct();
-                        const name = buffer.metadata.name;
-                        this.emit("file-complete", payload.fileId, blob, name, fromPeerId);
-                        this.fileBuffers.delete(payload.fileId);
-                    }
-                }
-                return;
-            }
-
-            if (envelope.kind === "file_ack") {
-                const payload = JSON.parse(envelope.payload) as { fileId: string; index: number };
-                const transfer = this.activeTransfers.get(payload.fileId);
-                if (transfer) {
-                    transfer.onAck(payload.index, fromPeerId);
-                }
-                return;
-            }
-
-            if (envelope.kind !== "chat") return;
-
-            let messageJson = envelope.payload;
-            if (this.options.encrypt) {
-                messageJson = await decryptMessage(envelope.payload, this.options.roomId);
-            }
-
-            const message = JSON.parse(messageJson) as P2PChatMessage;
-            if (message.fromPeerId === this.options.peerId) return;
-            this.emit("message", message);
+            // ── Direct delivery (non-relayed) — existing logic ──
+            await this.processInnerEnvelope(envelope, fromPeerId);
         } catch (error) {
             this.emit(
                 "error",
                 error instanceof Error ? error : new Error("Failed to parse P2P message"),
             );
         }
+    }
+
+    /**
+     * Process a standard inner envelope (chat, file_metadata, file_chunk, file_ack).
+     * This is called for both direct messages and unwrapped relay messages.
+     */
+    private async processInnerEnvelope(
+        envelope: { kind: string; payload: string },
+        fromPeerId: string,
+    ): Promise<void> {
+        if (envelope.kind === "file_metadata") {
+            const metadata = JSON.parse(envelope.payload) as FileMetadata;
+            const buffer = new FileReassemblyBuffer(metadata);
+            this.fileBuffers.set(metadata.id, buffer);
+            this.emit("file-metadata", metadata, fromPeerId);
+            return;
+        }
+
+        if (envelope.kind === "file_chunk") {
+            const payload = JSON.parse(envelope.payload) as FileChunkPayload;
+            const buffer = this.fileBuffers.get(payload.fileId);
+            if (!buffer) return;
+
+            const binary = atob(payload.data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+
+            const success = await buffer.addChunk(payload.index, bytes.buffer, payload.hash);
+            if (success) {
+                // Send ACK back — try direct first, then relay
+                const ackEnvelope = JSON.stringify({
+                    kind: "file_ack",
+                    payload: JSON.stringify({ fileId: payload.fileId, index: payload.index }),
+                });
+
+                const peer = this.peers.get(fromPeerId);
+                if (peer?.dc?.readyState === "open") {
+                    peer.dc.send(ackEnvelope);
+                } else {
+                    // ACK via relay if no direct connection
+                    await this.relaySend(ackEnvelope, fromPeerId);
+                }
+
+                this.emit("file-progress", payload.fileId, buffer.progress, fromPeerId);
+
+                if (buffer.isComplete) {
+                    const blob = buffer.reconstruct();
+                    const name = buffer.metadata.name;
+                    this.emit("file-complete", payload.fileId, blob, name, fromPeerId);
+                    this.fileBuffers.delete(payload.fileId);
+                }
+            }
+            return;
+        }
+
+        if (envelope.kind === "file_ack") {
+            const payload = JSON.parse(envelope.payload) as { fileId: string; index: number };
+            const transfer = this.activeTransfers.get(payload.fileId);
+            if (transfer) {
+                transfer.onAck(payload.index, fromPeerId);
+            }
+            return;
+        }
+
+        if (envelope.kind !== "chat") return;
+
+        let messageJson = envelope.payload;
+        if (this.options.encrypt) {
+            messageJson = await decryptMessage(envelope.payload, this.options.roomId);
+        }
+
+        const message = JSON.parse(messageJson) as P2PChatMessage;
+        if (message.fromPeerId === this.options.peerId) return;
+        this.emit("message", message);
+    }
+
+    // ── Relay Routing ─────────────────────────────────────────────────────────
+
+    /**
+     * Handle an incoming relay envelope: verify, process, deliver locally
+     * if addressed to us, and forward to next hops if TTL allows.
+     */
+    private async handleRelayEnvelope(relayPayload: string, fromPeerId: string): Promise<void> {
+        if (!this.relayRouter) return;
+
+        let relayEnvelope: RelayEnvelope;
+        try {
+            relayEnvelope = JSON.parse(relayPayload) as RelayEnvelope;
+        } catch {
+            this.emit("error", new Error("Failed to parse relay envelope"));
+            return;
+        }
+
+        const result = await this.relayRouter.processIncoming(
+            relayEnvelope,
+            fromPeerId,
+            // Pass origin DID for signature verification if available
+            // (In production, you'd look up the DID from a peer registry)
+            undefined,
+        );
+
+        // ── Dropped ──
+        if (!result.forMe && !result.shouldForward) {
+            this.emit("relay-dropped", relayEnvelope.relayId, result.dropReason ?? "unknown");
+            return;
+        }
+
+        // ── Deliver locally ──
+        if (result.forMe) {
+            try {
+                const innerEnvelope = JSON.parse(relayEnvelope.innerPayload) as {
+                    kind: string;
+                    payload: string;
+                };
+                await this.processInnerEnvelope(innerEnvelope, relayEnvelope.originPeerId);
+            } catch {
+                this.emit("error", new Error("Failed to parse relayed inner payload"));
+            }
+        }
+
+        // ── Forward to next hops ──
+        if (result.shouldForward && result.forwarded) {
+            const connectedPeerIds = this.getConnectedPeerIds();
+            const nextHops = this.relayRouter.getNextHops(
+                result.forwarded.destinationPeerId,
+                connectedPeerIds,
+                result.forwarded.path, // exclude peers already in the path
+            );
+
+            const forwardEnvelope = JSON.stringify({
+                kind: "relay",
+                payload: JSON.stringify(result.forwarded),
+            });
+
+            for (const hopPeerId of nextHops) {
+                const conn = this.peers.get(hopPeerId);
+                if (conn?.dc?.readyState === "open") {
+                    conn.dc.send(forwardEnvelope);
+                    this.emit("relay-forwarded", relayEnvelope.relayId, fromPeerId, hopPeerId);
+                }
+            }
+
+            // Emit route updates for analytics
+            const routeTable = this.relayRouter.getRouteTable();
+            for (const [peerId, entry] of routeTable) {
+                this.emit("route-updated", peerId, entry.hops, entry.via);
+            }
+        }
+    }
+
+    /**
+     * Broadcast an envelope via relay to all peers (including those not directly connected).
+     * Only creates relay envelopes if relay is enabled and a DID private key is available.
+     */
+    private async relayBroadcast(innerPayload: string): Promise<void> {
+        if (!this.relayRouter || !this.options.didPrivateKey) return;
+
+        const relayEnvelope = await this.relayRouter.wrapForRelay(
+            innerPayload,
+            "*", // broadcast
+            this.options.didPrivateKey,
+        );
+
+        const wireEnvelope = JSON.stringify({
+            kind: "relay",
+            payload: JSON.stringify(relayEnvelope),
+        });
+
+        // Send relay envelope to all connected peers
+        // (they will deduplicate if they already received the direct message)
+        for (const [, conn] of this.peers) {
+            if (conn.dc?.readyState === "open") {
+                conn.dc.send(wireEnvelope);
+            }
+        }
+    }
+
+    /**
+     * Send an envelope to a specific peer via relay (used for targeted messages like ACKs).
+     */
+    private async relaySend(innerPayload: string, destinationPeerId: string): Promise<void> {
+        if (!this.relayRouter || !this.options.didPrivateKey) return;
+
+        const relayEnvelope = await this.relayRouter.wrapForRelay(
+            innerPayload,
+            destinationPeerId,
+            this.options.didPrivateKey,
+        );
+
+        const wireEnvelope = JSON.stringify({
+            kind: "relay",
+            payload: JSON.stringify(relayEnvelope),
+        });
+
+        const connectedPeerIds = this.getConnectedPeerIds();
+        const nextHops = this.relayRouter.getNextHops(
+            destinationPeerId,
+            connectedPeerIds,
+            [this.options.peerId], // exclude self
+        );
+
+        for (const hopPeerId of nextHops) {
+            const conn = this.peers.get(hopPeerId);
+            if (conn?.dc?.readyState === "open") {
+                conn.dc.send(wireEnvelope);
+            }
+        }
+    }
+
+    /** Get list of peer IDs with open data channels. */
+    private getConnectedPeerIds(): string[] {
+        const ids: string[] = [];
+        for (const [peerId, conn] of this.peers) {
+            if (conn.dc?.readyState === "open") {
+                ids.push(peerId);
+            }
+        }
+        return ids;
     }
 
     private removePeer(peerId: string): void {
