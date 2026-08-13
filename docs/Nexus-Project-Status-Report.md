@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Nexus is a state-of-the-art **hybrid** secure communication platform. It bridges a modern centralized communication stack (PostgreSQL, Clerk, Socket.IO, UploadThing, LiveKit) with a highly secure, fully client-driven **WebRTC Peer-to-Peer (P2P) mesh network**. To ensure absolute cryptographic integrity and privacy, it incorporates an embedded Proof-of-Work blockchain ledger, W3C did:key-compatible Decentralized Identifiers (DIDs), multi-media steganography, self-destructing messages, and vector-clock-driven offline synchronization. 
+Nexus is a state-of-the-art **hybrid** secure communication platform. It bridges a modern centralized communication stack (OrbitDB P2P DB via Prisma proxy, Native Session Auth, Socket.IO, Pinata IPFS) with a highly secure, fully client-driven **WebRTC Peer-to-Peer (P2P) mesh network**. To ensure absolute cryptographic integrity and privacy, it incorporates an embedded Proof-of-Work blockchain ledger, W3C did:key-compatible Decentralized Identifiers (DIDs), multi-media steganography, self-destructing messages, and vector-clock-driven offline synchronization. 
 
 This document serves as an exhaustive status report detail list: detailing what has been implemented, identifying open gaps, analyzing the underlying security architecture, assessing security risks, and explaining how files are transferred and stored in chunks.
 
@@ -28,7 +28,7 @@ This document serves as an exhaustive status report detail list: detailing what 
 
 | # | Proposed Feature | Status | Current Implementation Details |
 |---|------------------|--------|---------------------------------|
-| 1 | **Decentralized Communication** | **DONE** | Full WebRTC P2P mesh ([p2p-mesh.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/p2p-mesh.ts)) with a custom signaling relay server ([signaling-server](file:///c:/Users/Devil/Desktop/Nexus/apps/signaling-server)). Chat history is synced via SQLite/PostgreSQL + Socket.IO; real-time audio/video runs over LiveKit. |
+| 1 | **Decentralized Communication** | **DONE** | Full WebRTC P2P mesh ([p2p-mesh.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/p2p-mesh.ts)) with a custom signaling relay server ([signaling-server](file:///c:/Users/Devil/Desktop/Nexus/apps/signaling-server)). Chat history is synced via OrbitDB + Socket.IO; real-time audio/video runs over native WebRTC P2P mesh. |
 | 2 | **Command Propagation / Alternate Routing** | **DONE** | Multi-hop relay routing via signed relay envelopes in [relay-router.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/relay-router.ts). ECDSA-signed envelopes with TTL (max 5), LRU dedup cache (2000 entries, 60s), passive route-table learning, and loop detection. Integrated into [p2p-mesh.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/p2p-mesh.ts) for automatic relay when direct WebRTC paths are unavailable. |
 | 3 | **Incremental Chunk-Based File Transfer** | **DONE** | 32KB chunk slicing, SHA-256 per-chunk verification, sliding-window flow control, and memory buffering in [file-transfer.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/file-transfer.ts). |
 | 4 | **Secure Communication (AES-GCM + SSL/TLS)** | **DONE** | All database-stored messages and live P2P payloads are encrypted with AES-256-GCM ([encryption.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/encryption.ts)). HTTPS/WSS secures external transport. |
@@ -39,7 +39,7 @@ This document serves as an exhaustive status report detail list: detailing what 
 | # | Proposed Feature | Status | Current Implementation Details |
 |---|------------------|--------|---------------------------------|
 | 1 | **Blockchain Security** | **DONE** | Local in-repo Proof-of-Work blockchain ([local-blockchain.ts](file:///c:/Users/Devil/Desktop/Nexus/apps/node-api/src/lib/local-blockchain.ts)) that logs cryptographic message hashes to guarantee history integrity. |
-| 2 | **Multimedia Support** | **DONE** | Native attachments uploaded to UploadThing CDN alongside real-time WebRTC audio/video call panels. |
+| 2 | **Multimedia Support** | **DONE** | Native attachments uploaded to Pinata IPFS & P2P DataChannels alongside real-time WebRTC audio/video call panels. |
 | 3 | **Steganographic Messaging** | **DONE** | Text hidden inside images (LSB Red-channel), audio (MP3 append), video (MP4/WebM append), and PDF (post-EOF insertion) with optional password protection ([steganography.ts](file:///c:/Users/Devil/Desktop/Nexus/apps/node-api/src/lib/steganography.ts)). |
 | 4 | **Suspicious Message Detection** | **Partial** | Content heuristics (injection, oversized, and DoS markers) are flagged in the analytics panel, but server-side blocking is not yet active. |
 | 5 | **Self-Destructing Messages** | **DONE** | 24-hour message expiry enforced by database triggers, client-side IndexedDB timers, and an hourly backend cron job ([index.ts](file:///c:/Users/Devil/Desktop/Nexus/apps/node-api/src/index.ts)). |
@@ -90,10 +90,10 @@ When peers are actively connected, files are transferred directly between browse
 * **Reassembly and Cleanup:** Once all chunks are received, the receiver builds a browser `Blob` from the `ArrayBuffer[]` array. It generates an object URL (`URL.createObjectURL(blob)`) and executes a programmatic link click to trigger the operating system's native download dialog, writing the file to the user's local disk. The object URL is immediately revoked (`URL.revokeObjectURL(url)`) and the buffer is deleted from the active map (`fileBuffers.delete(fileId)`), freeing browser memory for garbage collection.
 * **Security Benefit:** File content never traverses the server or databases, leaving zero server-side footprint.
 
-### 2.2 Centralized CDN Path (Fallback)
+### 2.2 Centralized IPFS Path (Fallback)
 If no peers are connected or the client uploads an attachment via standard chat controls:
-* **Storage Location:** Files are uploaded to the **UploadThing Cloud CDN**.
-* **Storage Reference:** The uploaded file URL is saved in the PostgreSQL database (`fileUrl` column on the `Message` and `DirectMessage` tables).
+* **Storage Location:** Files are uploaded and pinned to **Pinata IPFS Storage**.
+* **Storage Reference:** The uploaded file URL/CID is saved in OrbitDB (`fileUrl` column on the `Message` and `DirectMessage` models).
 
 ---
 
@@ -108,10 +108,10 @@ Nexus combines centralized convenience with decentralized zero-trust concepts:
 |   +--------------------------+                         +---------------------------+   |
 |   |   Centralized Control    |                         |    Decentralized Mesh     |   |
 |   +--------------------------+                         +---------------------------+   |
-|   | - Authentication (Clerk) |                         | - WebRTC Data Channels    |   |
-|   | - PostgreSQL (Encrypted) |                         | - Ephemeral P2P Chat      |   |
+|   | - Session Auth (JWT)     |                         | - WebRTC Data Channels    |   |
+|   | - OrbitDB P2P DB          |                         | - Ephemeral P2P Chat      |   |
 |   | - Signaling WS Server    |                         | - 32KB Ephemeral Files    |   |
-|   | - LiveKit SFU A/V Calls  |                         | - ECDSA DID Message Sign  |   |
+|   | - Pinata IPFS Storage    |                         | - ECDSA DID Message Sign  |   |
 |   +--------------------------+                         +---------------------------+   |
 |                 \                                                    /                 |
 |                  \--- Integrated Security Control Center Panel -----/                  |
@@ -123,8 +123,8 @@ Nexus combines centralized convenience with decentralized zero-trust concepts:
    * Direct browser communication uses WebRTC DTLS encryption by default.
    * On top of DTLS, direct message and chunk payloads are encrypted at the application layer with **AES-256-GCM**.
    * Keys are derived on-the-fly using `PBKDF2` with `scrypt` sync methods, parameterized by the unique `channelId` / `roomId` and the master password.
-2. **PostgreSQL Encryption-at-Rest:**
-   * Every message saved to PostgreSQL is encrypted at the application level prior to database write, using `AES-256-GCM` keyed by the server's master encryption key. Even if the database is leaked, the messages remain unreadable.
+2. **OrbitDB Encryption-at-Rest:**
+   * Every message saved to OrbitDB is encrypted at the application level prior to database write, using `AES-256-GCM` keyed by the server's master encryption key. Even if the database is leaked, the messages remain unreadable.
 3. **Decentralized Cryptographic Identity (DID):**
    * Rather than trusting server-provided user identifiers, each node generates a W3C-compliant **DID Keypair** (`did:key:z<spki-hex>`) using the Web Crypto API's ECDSA P-256 curve ([identity.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/identity.ts)).
    * Keys persist locally in the user's browser sandboxed IndexedDB (`nexus-identity`).
@@ -146,12 +146,12 @@ Although the system is highly secure, its hybrid structure introduces specific t
 * **Threat:** If the API server is compromised, an attacker can log message plaintexts or steal the master encryption key to decrypt database backups.
 
 ### 4.2 Metadata Leakage on Signaling Server
-* **The Risk:** The signaling server routing WebRTC connections operates over standard WebSockets (`ws://`). It logs connect events, room IDs, and Clerk user IDs to coordinate P2P handshakes.
+* **The Risk:** The signaling server routing WebRTC connections operates over standard WebSockets (`ws://`). It logs connect events, room IDs, and peer IDs to coordinate P2P handshakes.
 * **Threat:** A compromised signaling server allows an adversary to construct a complete metadata mapping of who is talking to whom, when, and from what IP address.
 
-### 4.3 Centralized Fallback CDN Storage
-* **The Risk:** When P2P file transfer is unavailable, files are uploaded to UploadThing. By default, these files are uploaded to public cloud buckets in plaintext.
-* **Threat:** Centralized CDN hosts can access, inspect, or leak user attachments.
+### 4.3 External Storage Unpinning Dependency
+* **The Risk:** When P2P file transfer is unavailable, files are uploaded to Pinata IPFS storage.
+* **Threat:** Expired files must be properly unpinned via API during watchdog purges to prevent persistent node retention.
 
 ### 4.4 In-Memory Blockchain Node Ephemerality
 * **The Risk:** The Proof-of-Work blockchain is stored entirely in the RAM of the Node API container. It is not saved to persistent disks, nor is it replicated with distributed Byzantine consensus.
@@ -177,21 +177,21 @@ To address the identified vulnerabilities and achieve a military-grade security 
   Server-Side Decryption Key    ───>     True Client-Side E2EE Database Storage
   Signaling Metadata Leakage    ───>     Room ID Hashing & Pseudo Peer IDs
   Public CDN Fallbacks          ───>     Local Browser AES-GCM File Encryption
-  In-Memory Blockchain Node     ───>     PostgreSQL Persistent Block Store
+  In-Memory Blockchain Node     ───>     OrbitDB Persistent Block Store
   Browser Heap RAM OOM Crashes  ───>     File System Access API Streaming Write
   Static Stego Delimiter        ───>     Spread-Spectrum LSB & Header Sizing
 ```
 
 ### 5.1 Implement True Zero-Knowledge DB Storage
 * **Action:** Shift the encryption pipeline entirely to the client. The Next.js web application must encrypt the message using the channel's shared cryptographic key *before* transmitting it to the server.
-* **Result:** The Node API server and PostgreSQL database only ever see and store ciphertext. The server remains blind to message contents.
+* **Result:** The Node API server and OrbitDB database only ever see and store ciphertext. The server remains blind to message contents.
 
-### 5.2 Browser-Side Encryption for Cloud Fallbacks
-* **Action:** Prior to uploading any file to UploadThing, encrypt the file array buffer locally in the browser using Web Crypto `AES-GCM`. Append the decryption key as a hash fragment to the URL (e.g., `https://uploadthing.com/files/123#key=xyz`).
-* **Result:** Since browsers do not transmit hash fragments (`#...`) to servers during HTTP requests, the cloud host and database only see encrypted data, while authorized room members can decrypt the file on download.
+### 5.2 Browser-Side Encryption for Storage Fallbacks
+* **Action:** Prior to uploading any file attachment to IPFS storage, encrypt the file array buffer locally in the browser using Web Crypto `AES-GCM`. Append the decryption key as a hash fragment to the URL (e.g., `https://gateway.pinata.cloud/ipfs/Qm...#key=xyz`).
+* **Result:** Since browsers do not transmit hash fragments (`#...`) to servers during HTTP requests, the storage host and database only see encrypted data, while authorized room members can decrypt the file on download.
 
 ### 5.3 Persist Blockchain Ledger Blocks
-* **Action:** Map the blockchain block objects to PostgreSQL tables. Create a Prisma schema for `Block` and `Transaction` tables.
+* **Action:** Map the blockchain block objects to OrbitDB models. Create a Prisma schema for `Block` and `Transaction` models.
 * **Result:** The blockchain ledger survives server restarts, maintaining historical audit logs.
 
 ### 5.4 Progressive Disk Streaming for File Transfers
@@ -220,7 +220,7 @@ To address the identified vulnerabilities and achieve a military-grade security 
 * **Server-Level Blocking:** Security watchdog detects malicious inputs but does not block requests.
 * **Persistent Ledger:** Local blockchain resets on server restart.
 * **Client-blind E2EE:** Database encryption keys are held on the server.
-* **Secure CDN Fallbacks:** Uploaded files on UploadThing are public and unencrypted.
+* **Secure Storage Fallbacks:** Files stored on external IPFS pins rely on unpinning API purges.
 * **Admin Role Gates:** The analytics dashboard is visible to all channel users; role-based gating is missing.
 
 ---

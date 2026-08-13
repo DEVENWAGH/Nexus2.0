@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { P2PMesh, type P2PChatMessage } from "@repo/p2p";
@@ -9,7 +9,7 @@ const SIGNALING_URL =
 
 /**
  * Hook for P2P real-time chat in a room (channel or DM conversation).
- * Use alongside Postgres-backed history; new messages flow peer-to-peer.
+ * Use alongside OrbitDB-backed history; new messages flow peer-to-peer.
  */
 export function useP2PChat({
     roomId,

@@ -1,4 +1,4 @@
-﻿# Nexus Chat Architecture in Nexus Community
+# Nexus Chat Architecture in Nexus Community
 
 The Nexus Community platform implements a decentralized chat architecture. Real-time messaging, encryption, and related API routes run on the **Node API** (`apps/node-api`) with Socket.IO and REST endpoints.
 
@@ -9,7 +9,7 @@ The Next.js frontend handles the user interface, while the Node API handles real
 ```
 Frontend (Next.js)  ──HTTP/WS──►  Node API (REST + Socket.IO)
                                         │
-                                        ├── PostgreSQL (Shared with Prisma)
+                                        ├── OrbitDB (via Prisma HTTP Proxy)
                                         ├── AES-256-GCM Encryption
                                         └── WebRTC P2P (via signaling relay)
 ```
@@ -24,26 +24,26 @@ The Next.js frontend communicates with the Node API via **WebSockets (Socket.IO)
 
 ## 3. AES-256-GCM Encryption (At Rest)
 
-Before any message is saved to the shared PostgreSQL database, it is encrypted:
+Before any message is saved to OrbitDB, it is encrypted:
 
 - Each channel or conversation generates a **unique AES key** derived using PBKDF2.
-- Messages are encrypted using **AES-256-GCM** before being written to the database.
+- Messages are encrypted using **AES-256-GCM** before being written to OrbitDB.
 - The database only stores encrypted JSON payloads.
 - Messages are decrypted on-the-fly by the backend when served to authenticated users.
 
 ## 4. Shared Persistent Storage
 
-Both the Next.js frontend (via Prisma) and the Node API connect to the same **PostgreSQL** database.
+Both the Next.js frontend and the Node API connect to **OrbitDB** via the shared Prisma HTTP proxy (`packages/db/src/prisma.ts`).
 
-- The Next.js app handles user management, authentication (via Clerk), and rendering.
-- The Node API handles message encryption, Socket.IO connections, and encrypted storage in PostgreSQL.
+- The Next.js app handles user management, authentication (via native JWT / `__session` cookies), and rendering.
+- The Node API handles message encryption, Socket.IO connections, and encrypted storage in OrbitDB.
 
 ## Summary of the Data Flow
 
 1. **Send**: A user sends a message from the Next.js frontend.
 2. **Process**: The Node API receives the message via Socket.IO (or P2P mesh for connected peers).
 3. **Encrypt**: The backend encrypts the message using AES-256-GCM.
-4. **Store**: The encrypted message is saved into PostgreSQL.
+4. **Store**: The encrypted message is saved into OrbitDB.
 5. **Broadcast**: The backend broadcasts the decrypted message via Socket.IO and/or P2P to connected users in the channel.
 
 The Node API provides the server-backed chat infrastructure alongside optional P2P paths in `@repo/p2p`.

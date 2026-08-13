@@ -27,7 +27,7 @@ Nexus is structured as a Turborepo monorepo, orchestrating independent microserv
 │   ├── node-api/            # Node.js backend API (Hono REST + Socket.io real-time engine)
 │   └── signaling-server/    # WebRTC signaling relay server (SDP/ICE handshake coordinator)
 ├── packages/
-│   ├── db/                  # Prisma client configurations & PostgreSQL schemas
+│   ├── db/                  # Prisma schema models & OrbitDB HTTP proxy client
 │   ├── p2p/                 # P2P mesh logic, Web Crypto DID, AES-256-GCM engine, chunk-based file transfer client
 │   ├── eslint-config/       # Shared linting standards
 │   └── typescript-config/   # Shared typescript compilation rules
@@ -50,21 +50,20 @@ graph TD
     subgraph Centralized Cloud & Backend
         NodeAPI[Node API Hono Server]
         Signaling[Signaling WebSocket Server]
-        Postgres[(PostgreSQL Database)]
-        UploadThing[UploadThing CDN]
-        LiveKit[LiveKit SFU Server]
+        OrbitDB[(OrbitDB P2P Database)]
+        Pinata[Pinata IPFS Gateway]
     end
 
     %% P2P Path
     A_P2P <-->|WebRTC Data Channel / AES-256-GCM| B_P2P
     A_P2P <-->|SDP / ICE Handshake| Signaling
     B_P2P <-->|SDP / ICE Handshake| Signaling
+    A_P2P <-->|Native WebRTC Voice & Video| B_P2P
 
     %% Centralized Path
     A_UI <-->|HTTP REST / Socket.IO| NodeAPI
-    NodeAPI <-->|AES-256-GCM Encrypted JSON| Postgres
-    A_UI <-->|Media Upload| UploadThing
-    A_UI <-->|SFU Voice & Video Calls| LiveKit
+    NodeAPI <-->|Prisma Proxy / Encrypted JSON| OrbitDB
+    A_UI <-->|Media Upload & Pinning| Pinata
 ```
 
 ---
@@ -73,9 +72,9 @@ graph TD
 
 ### 1. Centralized Workspace Features
 * **Servers & Channels**: Users can create, customize, and manage collaborative servers. Inside each server, admins can configure **Text**, **Audio**, and **Video** channels.
-* **Authentication**: Powered by **Clerk Auth**, providing secure registration, login, profile synchronization, and session management.
-* **Voice & Video Conferencing**: High-performance, low-latency audio/video calls utilizing a **LiveKit SFU (Selective Forwarding Unit)** server.
-* **Multimedia Uploads**: Handled via **UploadThing**, allowing users to upload and share images, PDFs, and media attachments directly in channels.
+* **Authentication**: Powered by **Session Cookie (`__session`) & Hono JWT Auth**, providing secure registration, login, profile synchronization, and session management.
+* **Voice & Video Conferencing**: High-performance, low-latency audio/video calls utilizing a **Native WebRTC P2P Mesh** with custom WebSocket signaling.
+* **Multimedia Uploads**: Handled via **Pinata IPFS Pinning & P2P DataChannels**, allowing users to upload and share images, PDFs, and media attachments.
 
 ### 2. Decentralized P2P Mesh Network
 * **WebRTC P2P Mesh**: Text channels and DMs support direct node-to-node messaging that bypasses backend databases entirely. Peer connections are managed in [p2p-mesh.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/p2p-mesh.ts).
@@ -86,7 +85,7 @@ graph TD
 * **Decentralized Identifiers (DIDs)**: Each user node generates a W3C-compatible DID Keypair (`did:key:z<spki-hex>`) locally using ECDSA (P-256 curve) in [identity.ts](file:///c:/Users/Devil/Desktop/Nexus/packages/p2p/src/identity.ts). Private keys are securely sandboxed in the browser's IndexedDB (`nexus-identity`). Every P2P packet is cryptographically signed and verified by receiving nodes to prevent Sybil/impersonation attacks.
 * **Application-Level Encryption**: 
   * **P2P Channel Payloads**: Encrypted end-to-end via WebRTC DTLS and further reinforced using **AES-256-GCM** with keys derived on-the-fly via PBKDF2 (parameterized by channel keys).
-  * **Database-at-Rest**: All messages saved in PostgreSQL are encrypted in the Hono API server using **AES-256-GCM** before writing, ensuring that database leaks expose only ciphertext.
+  * **Database-at-Rest**: All messages saved to OrbitDB are encrypted in the Hono API server using **AES-256-GCM** before writing, ensuring that database leaks expose only ciphertext.
 * **Proof-of-Work Blockchain Ledger**: The backend logs SHA-256 hashes of messages into a local Proof-of-Work blockchain [local-blockchain.ts](file:///c:/Users/Devil/Desktop/Nexus/apps/node-api/src/lib/local-blockchain.ts). Any manual or unauthorized DB manipulation breaks the hash chain, triggering tampering flags (ShieldCheck status indicators) in the UI.
 
 ### 4. Steganography Suite & Obfuscation
@@ -99,7 +98,7 @@ Nexus allows users to hide text payloads inside common media formats to avoid su
 
 ### 5. Security Watchdog (Self-Destruct & Auditing)
 * **24-Hour Message TTL**: Every channel message and direct message is marked with a 24-hour expiration (`expiresAt`).
-* **Automated Cleanup**: A daily backend node-cron task runs at midnight (`00:00:00`) to hard-delete expired records from PostgreSQL.
+* **Automated Cleanup**: A daily backend node-cron task runs at midnight (`00:00:00`) to hard-delete expired records from OrbitDB.
 * **Core Control Center**: A premium dashboard (located at `/servers/[serverId]/analytics` or `/admin`) built for server operators, featuring:
   * A live countdown timer to the next automatic watchdog purge.
   * System diagnostics showing blockchain blocks and node reputation counts.
@@ -110,7 +109,7 @@ Nexus allows users to hide text payloads inside common media formats to avoid su
 
 ## 🗄️ Database Schema & Relations
 
-Nexus utilizes a PostgreSQL instance configured via Prisma. Below is a layout of the primary models defined in [schema.prisma](file:///c:/Users/Devil/Desktop/Nexus/packages/db/prisma/schema.prisma):
+Nexus defines model structures using Prisma schema definitions (`schema.prisma`), which are queried at runtime via an OrbitDB HTTP proxy (`packages/db/src/prisma.ts`). Below is a layout of the primary models defined in [schema.prisma](file:///c:/Users/Devil/Desktop/Nexus/packages/db/prisma/schema.prisma):
 
 ```mermaid
 erDiagram
@@ -199,12 +198,13 @@ erDiagram
 | **Frontend Framework** | Next.js 16 (App Router) | Core UI, layouts, SSR, and dynamic rendering |
 | **Frontend Styling** | Tailwind CSS v4 & Shadcn/UI | Modern CSS variables, adaptive glassmorphism |
 | **State & Fetching** | Zustand & React Query | Global state store and client data cache |
-| **Authentication** | Clerk Auth | Multi-tenant auth, profile metadata synchronization |
+| **Authentication** | Native Session Cookie & JWT | Session-based auth via `__session` cookie and Hono JWT verification |
 | **Backend REST API** | Hono (NodeJS) | REST router, steganography engine, blockchain node |
 | **Real-time Server** | Socket.IO (WebSockets) | Instant notifications, active member presence, WS relay |
 | **WebRTC P2P** | Native browser RTCPeerConnection | Peer mesh, ephemeral channel syncing, client-side encryption |
-| **Voice / Video Engine**| LiveKit | SFU conferencing for high-bandwidth audio & video channels |
-| **ORM & Database** | Prisma + PostgreSQL | Relational storage at rest, database mappings |
+| **Voice / Video Engine**| Native WebRTC P2P Mesh | P2P audio & video channels via signaling server |
+| **Storage & IPFS** | Pinata IPFS & P2P DataChannels | Decentralized IPFS pinning and direct WebRTC chunk streaming |
+| **ORM & Database** | Prisma Schema + OrbitDB | Prisma schema type definitions with OrbitDB HTTP proxy runtime client |
 | **Package Manager** | Yarn (v4 Berry) | Zero-install capability, workspace package resolution |
 | **Monorepo Build** | Turborepo | Caching pipeline, parallel workspaces build engine |
 
@@ -215,7 +215,7 @@ erDiagram
 ### Prerequisites
 * **Yarn** >= 4.0.0 (Yarn Berry)
 * **Node.js** >= 18.0.0
-* **PostgreSQL** database (local instance or Docker container)
+* **OrbitDB Node API** (running on `http://localhost:3005`)
 
 ### 1. Installation
 Clone the repository and install workspace dependencies:
@@ -229,12 +229,9 @@ yarn install
 Create a `.env` file in the root directory (based on `.env.example`).
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/nexus?schema=public"
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="pk_test_..."
-CLERK_SECRET_KEY="sk_test_..."
-UPLOADTHING_TOKEN="60_..."
-NEXT_PUBLIC_LIVEKIT_URL="wss://..."
-LIVEKIT_API_KEY="..."
-LIVEKIT_API_SECRET="..."
+JWT_SECRET="nexus-dev-jwt-secret-change-me-32chars"
+PINATA_API_KEY="..."
+PINATA_API_SECRET="..."
 NEXT_PUBLIC_SOCKET_URL="http://localhost:8000"
 NEXT_PUBLIC_API_URL="http://localhost:8000"
 NEXT_PUBLIC_SIGNALING_URL="ws://localhost:3001"
@@ -243,12 +240,8 @@ ENCRYPTION_MASTER_KEY="your-super-secret-key-32-chars-long"
 
 ### 3. Database Initialization
 ```bash
-# Start PostgreSQL via docker-compose (optional fallback)
-docker-compose up -d postgres
-
-# Generate Prisma client and push the schema
+# Generate Prisma client definitions
 yarn db:generate
-yarn db:push
 ```
 
 ### 4. Running the Dev Servers

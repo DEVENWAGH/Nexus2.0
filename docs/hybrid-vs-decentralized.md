@@ -18,9 +18,9 @@ Nexus is designed as a **hybrid platform** that strategically splits responsibil
                                ▼                      ▼
                     ┌─────────────────────┐  ┌─────────────────┐
                     │  Node API (Hono)    │  │  WebRTC Mesh    │
-                    │  PostgreSQL (Db)    │  │  Client-Side    │
-                    │  Clerk (Auth)       │  │  AES-256-GCM    │
-                    │  LiveKit (SFU)      │  │  DID Keypairs   │
+                    │  OrbitDB (P2P Db)   │  │  Client-Side    │
+                    │  JWT Session Auth   │  │  AES-256-GCM    │
+                    │  Pinata IPFS        │  │  DID Keypairs   │
                     └─────────────────────┘  └─────────────────┘
 ```
 
@@ -31,29 +31,22 @@ Nexus is designed as a **hybrid platform** that strategically splits responsibil
 Below is a comparative breakdown of the current implementation versus fully decentralized alternatives:
 
 ### 1. Database Layer
-* **Current (PostgreSQL + Prisma)**:
-  * **Implementation**: Structured relational database. Messages are encrypted at the application layer via AES-256-GCM before writing to PostgreSQL, keeping data private even in the event of database leaks.
-  * **Pros**: Sub-millisecond reads/writes, transactional consistency (ACID), powerful querying (indexing, search, joins).
+* **Current (OrbitDB + Prisma Proxy)**:
+  * **Implementation**: OrbitDB decentralized P2P database engine queried via Prisma HTTP proxy (`packages/db/src/prisma.ts`). Messages are encrypted at the application layer via AES-256-GCM before writing to OrbitDB, keeping data private even in the event of database leaks.
+  * **Pros**: Decentralized P2P data replication, client-side encryption, structured querying via Prisma proxy contract.
   * **Alternative (GunDB / OrbitDB / Ceramic)**:
     * **Mechanism**: Decentralized graph database synchronized via Conflict-Free Replicated Data Types (CRDTs).
     * **Cons**: Suffers from **eventual consistency**. Resolving database conflicts, performing complex queries (e.g. server analytics, message searches), and maintaining persistence when all client nodes are offline is highly unstable.
 
 ### 2. Media Storage Layer
-* **Current (UploadThing / AWS S3 CDN)**:
-  * **Implementation**: Uploads files to S3 with CDN caching for fast client access.
-  * **Pros**: High-bandwidth uploads, fast download speeds, and predictable file deletion. Essential for supporting the **24-hour self-destructing message watchdog**.
-  * **Alternative (IPFS / Filecoin / Arweave)**:
-    * **Mechanism**: Files are sliced, hashed, and distributed across a peer network. Clients retrieve files via Content Identifiers (CIDs).
-    * **Cons**: Retrieval speed is highly variable depending on caching. Most importantly, **IPFS makes file deletion nearly impossible** if another node pins the content, directly violating the platform's 24-hour data expiration privacy guarantee.
+* **Current (P2P DataChannels + Pinata IPFS)**:
+  * **Implementation**: Slices files into 32KB encrypted chunks over WebRTC DataChannels with Pinata IPFS unpinning support for persistent file cleanup.
+  * **Pros**: Zero intermediate server storage footprint during P2P transfers, with automated IPFS unpinning for the **24-hour self-destructing message watchdog**.
 
 ### 3. Identity and Authentication Layer
-* **Current (Clerk Auth)**:
-  * **Implementation**: Social logins (OAuth), email/password accounts, and instant profile sync.
-  * **Pros**: Zero user friction, simple session management, and standard security practices.
-  * **Alternative (MetaMask / WalletConnect / DID)**:
-    * **Mechanism**: Authenticating sessions by signing cryptographic payloads with a Web3 crypto wallet.
-    * **Cons**: Requires users to install browser extensions or mobile wallet apps. Losing a private key results in permanent loss of access (no password recovery).
-  * *Note: Nexus uses a hybrid compromise. It uses Clerk for account management, but generates and stores a Web Crypto DID Keypair (`did:key`) in the browser's IndexedDB to sign P2P message packets.*
+* **Current (Native Session Cookie & Hono JWT)**:
+  * **Implementation**: Lightweight session cookies (`__session`) and Hono JWT verification paired with browser-generated W3C DID Keypairs (`did:key`) in IndexedDB.
+  * **Pros**: Zero third-party dependency, instant session management, and cryptographic P2P packet signing.
 
 ### 4. Blockchain Ledger Layer
 * **Current (Local Proof-of-Work Hash Chain)**:
@@ -74,12 +67,9 @@ Below is a comparative breakdown of the current implementation versus fully dece
       * **Offline Delivery**: Direct P2P networks cannot store messages if the recipient is offline.
 
 ### 6. Voice and Video Conferencing Layer
-* **Current (LiveKit SFU)**:
-  * **Implementation**: A Selective Forwarding Unit (SFU) relays video/audio streams. Clients upload once, and the server distributes streams.
-  * **Pros**: Scales linearly ($O(N)$ bandwidth), enabling smooth 100+ user calls.
-  * **Alternative (Pure WebRTC Mesh)**:
-    * **Mechanism**: Direct peer-to-peer connection mesh between all call participants.
-    * **Cons**: Requires $O(N^2)$ bandwidth. Every user uploads their stream to every other user. Browser and network throughput degrade rapidly with more than 3–4 participants.
+* **Current (Native WebRTC P2P Mesh)**:
+  * **Implementation**: Direct peer-to-peer WebRTC audio/video streams coordinated by a lightweight WebSocket signaling relay server.
+  * **Pros**: Fully decentralized stream transmission without centralized media relay servers.
 
 ---
 

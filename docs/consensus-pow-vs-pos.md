@@ -50,7 +50,7 @@ async validProof(lastProof: number, proof: number): Promise<boolean> {
 ```
 
 4. **Chaining**: Once the valid proof is found, a block is written containing all pending transactions, the computed proof, and the parent block's hash (`previousHash`).
-5. **Tamper Auditing**: Any attempt to modify a message's content directly in PostgreSQL will break the cryptographic link between the database hash and the blockchain ledger hash. To fake the history, an attacker would have to re-compute the Proof of Work for the tampered block and all subsequent blocks—a process that is computationally difficult.
+5. **Tamper Auditing**: Any attempt to modify a message's content directly in OrbitDB will break the cryptographic link between the database hash and the blockchain ledger hash. To fake the history, an attacker would have to re-compute the Proof of Work for the tampered block and all subsequent blocks—a process that is computationally difficult.
 
 ---
 

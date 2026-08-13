@@ -59,7 +59,7 @@ The watchdog secures the workspace by enforcing strict Time-to-Live (TTL) limits
     *   The node API performs Proof-of-Work and outputs a success block hash log.
 2.  **Manual Message Purging:**
     *   To clear out-of-date or expired messages immediately instead of waiting for the midnight cron, click **Run Purge** under the watchdog panel.
-    *   A live feedback notification displays the exact number of channel messages and direct messages deleted from the SQLite/PostgreSQL store.
+    *   A live feedback notification displays the exact number of channel messages and direct messages deleted from the OrbitDB store.
 3.  **Audit Ledger Blocks:**
     *   Examine the **Blockchain Explorer** paginated table.
     *   Click any individual block (e.g. `#1`, `#2`) to expand it and review the specific type, sender, recipient, and transaction hashes contained within.

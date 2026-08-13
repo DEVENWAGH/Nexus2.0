@@ -1,4 +1,4 @@
-﻿# @repo/p2p — Decentralized messaging layer
+# @repo/p2p — Decentralized messaging layer
 
 Browser-first P2P mesh over **WebRTC data channels** with a **lightweight signaling server** (SDP/ICE relay only — no message storage).
 
@@ -13,15 +13,15 @@ Browser A  ←—— WebRTC DataChannel ——→  Browser B
          (relay only, no message hub)
 ```
 
-## Postgres vs P2P
+## OrbitDB vs P2P
 
 | Data | Storage |
 |------|---------|
-| User profiles, servers, channels, memberships | **Postgres** (Clerk + Prisma) |
+| User profiles, servers, channels, memberships | **OrbitDB** (via Prisma HTTP Proxy) |
 | Real-time chat delivery | **P2P WebRTC** (this package) |
 | Message history (optional) | Local IndexedDB / future CRDT — **not** signaling server |
-| File uploads | UploadThing CDN (centralized asset host) |
-| Voice/video | LiveKit (centralized SFU) |
+| File uploads | **P2P DataChannel** (32KB chunks) / **Pinata IPFS** |
+| Voice/video | **Native WebRTC P2P Mesh** via signaling relay |
 
 ## Run locally
 
@@ -44,6 +44,6 @@ yarn dev
 
 1. **Done**: Signaling server + WebRTC mesh + AES-GCM in TypeScript
 2. **Done**: Wire DMs and text channels to `P2PMesh` via `P2PChatBridge`
-3. **Next**: Wire server/channel REST via Node API + Postgres
+3. **Next**: Wire server/channel REST via Node API + OrbitDB
 4. **Later**: libp2p for NAT traversal / offline peer discovery
 5. **Later**: Optional IPFS or CRDT for encrypted message history sync

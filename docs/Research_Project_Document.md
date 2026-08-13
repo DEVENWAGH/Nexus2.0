@@ -52,11 +52,11 @@ Modern secure communication systems generally fall into two categories:
 
 | System Component | Centralized Messengers (Signal/Slack) | Fully Decentralized (Matrix/OrbitDB/IPFS) | Nexus Hybrid Architecture |
 |---|---|---|---|
-| **Identity Management** | Phone number / Central Email Auth | Public/Private Key pair (User-managed) | Clerk OAuth + Sandboxed Local Web Crypto DID (`did:key`) |
+| **Identity Management** | Phone number / Central Email Auth | Public/Private Key pair (User-managed) | Native JWT Auth + Sandboxed Local Web Crypto DID (`did:key`) |
 | **Data Consistency** | Strong ACID, sub-millisecond | Eventual consistency, high conflict rates | Strong ACID routing + Client-side decrypted caches |
-| **Voice & Video Scaling** | $O(N)$ via central SFU relays | $O(N^2)$ via WebRTC mesh (scales poorly) | $O(N)$ via centralized LiveKit SFU coordination |
+| **Voice & Video Scaling** | $O(N)$ via central SFU relays | $O(N^2)$ via WebRTC mesh (scales poorly) | Native WebRTC P2P Mesh via signaling server |
 | **Audit Mechanism** | None (trust is placed in the host) | Public blockchain (high gas, slow) | Local Proof-of-Work Hash Ledger (zero-gas, instant) |
-| **Media Deletion** | Logical delete, server stays dirty | Impossible once pinned/cached on peers | 24h expiration cron sweep + CDN API hard-purge |
+| **Media Deletion** | Logical delete, server stays dirty | Impossible once pinned/cached on peers | 24h expiration cron sweep + Pinata IPFS unpinning |
 | **Censorship Evasion** | Domain fronting (expensive) | Tor/I2P routing (slow) | LSB & Post-EOF Multi-media Steganography |
 
 #### 2.3 Summary of Findings
@@ -162,7 +162,7 @@ Nexus avoids the performance and cost issues of public blockchains and the relia
              │ (WebRTC SDP Signaling)                             │ (HTTP / Socket.IO)
              ▼                                                    ▼
   ┌───────────────────────┐                            ┌───────────────────────┐
-  │   Signaling Server    │                            │  PostgreSQL Database  │
+  │   Signaling Server    │                            │     OrbitDB Database  │
   └───────────────────────┘                            └───────────────────────┘
 ```
 
@@ -171,7 +171,7 @@ Nexus is structured as a Turborepo monorepo:
 * **`apps/web`:** Next.js 16 frontend styled with Tailwind CSS v4 and Shadcn/UI, using Zustand for state management and React Query for caching.
 * **`apps/node-api`:** Node.js backend using the Hono framework. It manages real-time messaging, steganographic conversions, and blockchain logging.
 * **`apps/signaling-server`:** WebSocket server that coordinates WebRTC SDP/ICE handshakes.
-* **`packages/db`:** Prisma schemas and PostgreSQL clients.
+* **`packages/db`:** Prisma schema definitions and OrbitDB HTTP proxy client.
 * **`packages/p2p`:** Shared library managing peer-to-peer connections, Web Crypto DIDs, and file transfer slicing.
 
 #### 8.2 Workflow
@@ -180,7 +180,7 @@ Nexus is structured as a Turborepo monorepo:
 1. **Send:** The user enters a message in the Next.js client.
 2. **Encrypt-at-Rest:** The Node API encrypts the message with AES-256-GCM using the channel's key.
 3. **Blockchain Log:** The server logs the message hash to the Proof-of-Work mempool.
-4. **Store:** The encrypted message is saved in PostgreSQL.
+4. **Store:** The encrypted message is saved in OrbitDB.
 5. **Real-time Broadcast:** The decrypted message is broadcasted to active room members via Socket.IO.
 
 ##### 8.2.2 P2P Chunk-Based File Transfer Workflow
@@ -199,7 +199,7 @@ Nexus is structured as a Turborepo monorepo:
 |                                            (AES-256-GCM Encrypt)            |
 |                                            (Log Hash to Ledger)             |
 |                                                     ▼                       |
-|  [Receiver Client] <───(Socket.IO/P2P)─── [PostgreSQL Storage]              |
+|  [Receiver Client] <───(Socket.IO/P2P)─── [OrbitDB Storage]                 |
 +─────────────────────────────────────────────────────────────────────────────+
 ```
 
@@ -244,10 +244,10 @@ $$\text{Payload} = \text{[Original Audio/Video/PDF Bytes]} \parallel \text{[MAGI
 #### 9.2 Tools and Technologies
 * **Language:** TypeScript (Next.js 16, Hono, Node.js).
 * **Styling:** Tailwind CSS v4, Shadcn/UI.
-* **Database:** PostgreSQL with Prisma ORM.
-* **Auth:** Clerk.
-* **Storage:** UploadThing CDN.
-* **Relays:** LiveKit SFU (WebRTC Audio/Video).
+* **Database:** OrbitDB (via Prisma HTTP Proxy).
+* **Auth:** Native Session Cookie (`__session`) & Hono JWT Auth.
+* **Storage:** Pinata IPFS & WebRTC P2P DataChannels.
+* **Relays:** WebRTC P2P Mesh & WebSocket Signaling Server.
 * **Package Manager:** Yarn Berry (v4) in a Turborepo monorepo.
 
 #### 9.3 Experimental Setup
@@ -255,7 +255,7 @@ The test environment consists of:
 * A local Docker container running PostgreSQL.
 * Two independent browser client sessions simulating remote peers.
 * Host servers running the Hono API and Signaling Relay.
-* A LiveKit SFU instances to test multi-party audio/video channels.
+* A WebRTC P2P mesh setup to test multi-party audio/video channels.
 
 ---
 
@@ -300,7 +300,7 @@ The Nexus platform demonstrates that a **hybrid architecture** can provide high-
 #### 11.2 Future Scope
 * **Alternate Routing (Multi-hop Mesh):** Implement message routing through intermediate peers to bypass connection blockers.
 * **True Zero-Knowledge E2EE Database Storage:** Move the encryption and decryption pipeline entirely to the client so the backend never sees plaintext.
-* **Persistent Blockchain Database:** Move block storage from in-memory RAM to PostgreSQL tables so ledger history survives server restarts.
+* **Persistent Blockchain Database:** Move block storage from in-memory RAM to OrbitDB models so ledger history survives server restarts.
 * **File System Access API Integration:** Stream files directly to local disks during WebRTC transfers to support large file transfers without browser tab crashes.
 * **Spread-Spectrum Steganography:** Implement pseudo-random pixel distribution algorithms to make steganographic payloads more resilient against statistical analysis.
 
