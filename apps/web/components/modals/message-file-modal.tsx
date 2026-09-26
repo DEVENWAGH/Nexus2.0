@@ -39,6 +39,7 @@ import {
 import { encodeSteg } from "@/lib/client-steg";
 import { useQueryClient } from "@tanstack/react-query";
 import { upsertChatMessage } from "@/lib/chat-cache";
+import { validateUploadedFile } from "@/lib/file-security";
 
 type StegFileType = "image" | "audio" | "video" | "pdf" | null;
 
@@ -151,6 +152,14 @@ const MessageFileModal = () => {
         );
 
         try {
+            if (localFile) {
+                const check = await validateUploadedFile(localFile, "messageFile");
+                if (!check.safe) {
+                    toast.error(check.reason || "Security restriction: Executable files and scripts are not supported.", { id: loadingId });
+                    return;
+                }
+            }
+
             const url = qs.stringifyUrl({
                 url: apiUrl || "",
                 query,

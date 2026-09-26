@@ -1,13 +1,14 @@
 "use client";
 
 import UserAvatar from "../user-avatar";
-import { FileIcon, Trash, ShieldCheck, Lock, Download, Music, Video as VideoIcon, Loader2, Flame, Timer, Bomb, Share2, Check } from "lucide-react";
+import { FileIcon, Trash, ShieldCheck, ShieldAlert, Lock, Download, Music, Video as VideoIcon, Loader2, Flame, Timer, Bomb, Share2, Check } from "lucide-react";
 import ActionTooltip from "../action-tooltip";
 import Image from "next/image";
 import { MemberRole } from "@repo/db";
 import { Member, Profile } from "@repo/db";
 import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { useModal } from "@/hooks/use-mode-store";
 import { roleIconMap } from "@/constants/roleIconMap";
 import { useRouter, useParams } from "next/navigation";
@@ -20,6 +21,7 @@ import { useP2PChatContext } from "./p2p-chat-bridge";
 import { isClientEncrypted, decryptForChannel } from "@/lib/client-crypto";
 import { getOrCreateIdentity } from "@/hooks/use-identity";
 import { getClientBlockchain } from "@/lib/client-blockchain";
+import { isDangerousFilename } from "@/lib/file-security";
 
 // Dynamic import to avoid SSR issues — react-player uses browser APIs
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false }) as any;
@@ -192,9 +194,26 @@ const ChatItem = ({
         p2pFileId = parts[2] || "";
     }
 
+    const isP2PDangerous = useMemo(() => {
+        if (!isP2PFile || !p2pFileName) return false;
+        return !isDangerousFilename(p2pFileName).safe;
+    }, [isP2PFile, p2pFileName]);
+
+    const isUrlDangerous = useMemo(() => {
+        if (!fileUrl) return false;
+        return !isDangerousFilename(fileUrl).safe;
+    }, [fileUrl]);
+
     const handleP2PDownload = () => {
         const fileData = p2pFiles[p2pFileId];
         if (!fileData) return;
+
+        const securityCheck = isDangerousFilename(fileData.name);
+        if (!securityCheck.safe) {
+            toast.error(securityCheck.reason || "Download blocked: Executable and script files cannot be downloaded.");
+            return;
+        }
+
         const url = URL.createObjectURL(fileData.blob);
         const a = document.createElement("a");
         a.href = url;
@@ -623,18 +642,27 @@ const ChatItem = ({
                     {/* ── PDF / unknown file fallback ── */}
                     {!isLoadingType && (isPDF || fileType === "other" || (isImage && hasError)) && !deleted && (
                         <div className="mt-2">
-                            <div className="relative flex items-center p-2 rounded-md bg-zinc-100 dark:bg-zinc-800 border">
-                                <FileIcon className="h-10 w-10 fill-indigo-200 stroke-indigo-400" />
-                                <a
-                                    href={fileUrl || ""}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="ml-2 text-sm text-indigo-500 dark:text-indigo-400 hover:underline"
-                                >
-                                    {isPDF ? `PDF File` : `Open File`}
-                                </a>
-                            </div>
-                            {(isPDF || fileType === "other") && <StegButton />}
+                            {isUrlDangerous ? (
+                                <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs">
+                                    <ShieldAlert className="h-5 w-5 shrink-0 text-rose-500" />
+                                    <span>Blocked File: Executable, script, and auto-run files are restricted for platform security.</span>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="relative flex items-center p-2 rounded-md bg-zinc-100 dark:bg-zinc-800 border">
+                                        <FileIcon className="h-10 w-10 fill-indigo-200 stroke-indigo-400" />
+                                        <a
+                                            href={fileUrl || ""}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="ml-2 text-sm text-indigo-500 dark:text-indigo-400 hover:underline"
+                                        >
+                                            {isPDF ? `PDF File` : `Open File`}
+                                        </a>
+                                    </div>
+                                    {(isPDF || fileType === "other") && <StegButton />}
+                                </>
+                            )}
                         </div>
                     )}
 
@@ -678,47 +706,59 @@ const ChatItem = ({
                                 </div>
                             )
                         ) : isP2PFile ? (
-                            <div className="mt-1.5 max-w-xs sm:max-w-md w-full">
-                                <div className="flex items-center gap-3 p-3.5 rounded-xl border border-indigo-500/20 bg-indigo-500/5 dark:bg-indigo-500/10 shadow-sm relative overflow-hidden group/p2p hover:bg-indigo-500/10 dark:hover:bg-indigo-500/20 transition-all duration-300">
-                                    <div className="h-10 w-10 rounded-xl bg-indigo-500/20 flex items-center justify-center flex-shrink-0 transition-transform group-hover/p2p:scale-105">
-                                        <Share2 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                                    </div>
+                            isP2PDangerous ? (
+                                <div className="mt-1.5 max-w-xs sm:max-w-md w-full p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center gap-3">
+                                    <ShieldAlert className="h-6 w-6 shrink-0 text-rose-500" />
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 truncate" title={p2pFileName}>
-                                            {p2pFileName}
+                                        <p className="text-xs font-semibold truncate" title={p2pFileName}>{p2pFileName}</p>
+                                        <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                                            Blocked Executable / Script: This file type is restricted to prevent auto-run and malicious code execution.
                                         </p>
-                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
-                                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono font-medium">
-                                                {p2pFileSize}
-                                            </span>
-                                            <span className="h-1 w-1 rounded-full bg-zinc-400 dark:bg-zinc-600 hidden xs:inline-block"></span>
-                                            {p2pFiles[p2pFileId] ? (
-                                                <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-0.5">
-                                                    <Check className="h-3 w-3" /> Direct P2P Transfer Complete
-                                                </span>
-                                            ) : (
-                                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">
-                                                    Direct P2P File Shared
-                                                </span>
-                                            )}
-                                        </div>
                                     </div>
-
-                                    {p2pFiles[p2pFileId] ? (
-                                        <button
-                                            onClick={handleP2PDownload}
-                                            className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white text-[11px] font-bold flex items-center gap-1 transition-all duration-300 active:scale-95 shadow-sm"
-                                        >
-                                            <Download className="h-3.5 w-3.5" />
-                                            Download
-                                        </button>
-                                    ) : (
-                                        <div className="text-[10px] px-2 py-1 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-300 dark:border-zinc-700 font-medium cursor-not-allowed" title="File only exists in-memory during active session. If sender disconnected or you refreshed, it is no longer available.">
-                                            Unavailable
-                                        </div>
-                                    )}
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="mt-1.5 max-w-xs sm:max-w-md w-full">
+                                    <div className="flex items-center gap-3 p-3.5 rounded-xl border border-indigo-500/20 bg-indigo-500/5 dark:bg-indigo-500/10 shadow-sm relative overflow-hidden group/p2p hover:bg-indigo-500/10 dark:hover:bg-indigo-500/20 transition-all duration-300">
+                                        <div className="h-10 w-10 rounded-xl bg-indigo-500/20 flex items-center justify-center flex-shrink-0 transition-transform group-hover/p2p:scale-105">
+                                            <Share2 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 truncate" title={p2pFileName}>
+                                                {p2pFileName}
+                                            </p>
+                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
+                                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono font-medium">
+                                                    {p2pFileSize}
+                                                </span>
+                                                <span className="h-1 w-1 rounded-full bg-zinc-400 dark:bg-zinc-600 hidden xs:inline-block"></span>
+                                                {p2pFiles[p2pFileId] ? (
+                                                    <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-0.5">
+                                                        <Check className="h-3 w-3" /> Direct P2P Transfer Complete
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">
+                                                        Direct P2P File Shared
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {p2pFiles[p2pFileId] ? (
+                                            <button
+                                                onClick={handleP2PDownload}
+                                                className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white text-[11px] font-bold flex items-center gap-1 transition-all duration-300 active:scale-95 shadow-sm"
+                                            >
+                                                <Download className="h-3.5 w-3.5" />
+                                                Download
+                                            </button>
+                                        ) : (
+                                            <div className="text-[10px] px-2 py-1 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-300 dark:border-zinc-700 font-medium cursor-not-allowed" title="File only exists in-memory during active session. If sender disconnected or you refreshed, it is no longer available.">
+                                                Unavailable
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )
                         ) : (
                             <p className="text-sm text-zinc-600 dark:text-zinc-300 [overflow-wrap:anywhere] whitespace-pre-wrap min-w-0 w-full">
                                 {decryptedContent}

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useAuth } from "@/hooks/use-auth";
 import axios from "axios";
@@ -7,6 +7,13 @@ import { useEffect, useState, useRef } from "react";
 import { useP2PChatContext } from "./p2p-chat-bridge";
 import { FileIcon, Loader2, Share2, Download, CheckCircle, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import {
+    validateUploadedFile,
+    isDangerousFilename,
+    isDangerousMimeType,
+    SAFE_ACCEPT_CONFIG,
+} from "@/lib/file-security";
 import {
     Tooltip,
     TooltipContent,
@@ -34,6 +41,16 @@ export default function P2PFileTransfer({ apiUrl, query }: P2PFileTransferProps)
 
         // Listen for incoming file metadata
         const unsubscribeMeta = mesh.on("file-metadata", (metadata) => {
+            const nameCheck = isDangerousFilename(metadata.name);
+            const mimeCheck = isDangerousMimeType(metadata.type);
+
+            if (!nameCheck.safe || !mimeCheck.safe) {
+                toast.error(`Security alert: Blocked unsafe incoming file "${metadata.name}" from peer.`);
+                setStatus("error");
+                setTimeout(() => setStatus("idle"), 3000);
+                return;
+            }
+
             setStatus("receiving");
             setFileName(metadata.name);
             setFileSize(metadata.size);
@@ -78,6 +95,16 @@ export default function P2PFileTransfer({ apiUrl, query }: P2PFileTransferProps)
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
         if (!selectedFile || !mesh) return;
+
+        // Security check: reject executable, script, and auto-running files
+        const securityCheck = await validateUploadedFile(selectedFile, "messageFile");
+        if (!securityCheck.safe) {
+            toast.error(securityCheck.reason || "Security restriction: Executable files and scripts cannot be shared.");
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
+            return;
+        }
 
         setFile(selectedFile);
         setFileName(selectedFile.name);
@@ -131,8 +158,13 @@ export default function P2PFileTransfer({ apiUrl, query }: P2PFileTransferProps)
             }, 3000);
         } catch (err) {
             console.error("Failed to send P2P file:", err);
+            toast.error(err instanceof Error ? err.message : "Failed to send P2P file");
             setStatus("error");
             setTimeout(() => setStatus("idle"), 3000);
+        } finally {
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
         }
     };
 
@@ -149,6 +181,7 @@ export default function P2PFileTransfer({ apiUrl, query }: P2PFileTransferProps)
                 ref={fileInputRef}
                 onChange={handleFileSelect}
                 className="hidden"
+                accept={SAFE_ACCEPT_CONFIG.p2pTransfer}
             />
             <TooltipProvider>
                 <Tooltip delayDuration={150}>

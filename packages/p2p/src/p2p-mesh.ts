@@ -9,6 +9,11 @@ import {
     type FileMetadata,
     type FileChunkPayload,
 } from "./file-transfer";
+import {
+    hasExecutableMagicBytes,
+    isDangerousFilename,
+    isDangerousMimeType,
+} from "./file-security";
 import { RelayRouter, type RelayEnvelope, type RelayStats, type RouteEntry } from "./relay-router";
 import type {
     P2PChatMessage,
@@ -174,10 +179,25 @@ export class P2PMesh {
         fileId: string = crypto.randomUUID(),
         onProgress?: (progress: number) => void,
     ): Promise<string> {
+        // Enforce file security: reject executable, script, and auto-run files
+        const nameCheck = isDangerousFilename(file.name);
+        if (!nameCheck.safe) {
+            throw new Error(`File transfer blocked: ${nameCheck.reason}`);
+        }
+        const mimeCheck = isDangerousMimeType(file.type);
+        if (!mimeCheck.safe) {
+            throw new Error(`File transfer blocked: ${mimeCheck.reason}`);
+        }
+
         const chunkSize = 32768; // 32KBsafe WebRTC chunk size
         const totalChunks = Math.ceil(file.size / chunkSize);
 
         const entireBuffer = await file.arrayBuffer();
+        const magicCheck = hasExecutableMagicBytes(new Uint8Array(entireBuffer.slice(0, 512)));
+        if (!magicCheck.safe) {
+            throw new Error(`File transfer blocked: ${magicCheck.reason}`);
+        }
+
         const fileHash = await computeBufferHash(entireBuffer);
 
         const metadata: FileMetadata = {
@@ -543,9 +563,23 @@ export class P2PMesh {
     ): Promise<void> {
         if (envelope.kind === "file_metadata") {
             const metadata = JSON.parse(envelope.payload) as FileMetadata;
-            const buffer = new FileReassemblyBuffer(metadata);
-            this.fileBuffers.set(metadata.id, buffer);
-            this.emit("file-metadata", metadata, fromPeerId);
+            const nameCheck = isDangerousFilename(metadata.name);
+            const mimeCheck = isDangerousMimeType(metadata.type);
+
+            if (!nameCheck.safe || !mimeCheck.safe) {
+                console.warn(`[P2P Mesh] Rejected unsafe incoming file '${metadata.name}':`, nameCheck.reason || mimeCheck.reason);
+                this.emit("error", new Error(`Blocked unsafe incoming file '${metadata.name}': Executable or script files are restricted.`));
+                return;
+            }
+
+            try {
+                const buffer = new FileReassemblyBuffer(metadata);
+                this.fileBuffers.set(metadata.id, buffer);
+                this.emit("file-metadata", metadata, fromPeerId);
+            } catch (err) {
+                console.error("[P2P Mesh] Failed to initialize file buffer:", err);
+                this.emit("error", err instanceof Error ? err : new Error("File security check failed"));
+            }
             return;
         }
 
@@ -584,6 +618,9 @@ export class P2PMesh {
                     this.emit("file-complete", payload.fileId, blob, name, fromPeerId);
                     this.fileBuffers.delete(payload.fileId);
                 }
+            } else {
+                this.fileBuffers.delete(payload.fileId);
+                this.emit("error", new Error(`Blocked unsafe or corrupted chunk ${payload.index} for file ID ${payload.fileId}`));
             }
             return;
         }

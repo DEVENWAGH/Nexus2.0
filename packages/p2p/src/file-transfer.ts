@@ -1,6 +1,8 @@
-/**
- * Utilities for P2P Chunk-Based File Transfer in browser environment.
- */
+import {
+    hasExecutableMagicBytes,
+    isDangerousFilename,
+    isDangerousMimeType,
+} from "./file-security";
 
 export type FileMetadata = {
     id: string;
@@ -46,12 +48,31 @@ export class FileReassemblyBuffer {
     public readonly metadata: FileMetadata;
 
     constructor(metadata: FileMetadata) {
+        const nameCheck = isDangerousFilename(metadata.name);
+        if (!nameCheck.safe) {
+            throw new Error(`Security Exception: ${nameCheck.reason}`);
+        }
+        const mimeCheck = isDangerousMimeType(metadata.type);
+        if (!mimeCheck.safe) {
+            throw new Error(`Security Exception: ${mimeCheck.reason}`);
+        }
+
         this.metadata = metadata;
         this.chunks = new Array(metadata.totalChunks);
     }
 
     /** Adds a chunk, verifying its integrity hash. */
     async addChunk(index: number, chunkBuffer: ArrayBuffer, expectedHash: string): Promise<boolean> {
+        // Enforce magic bytes inspection on the first chunk to catch disguised executables
+        if (index === 0) {
+            const initialBytes = new Uint8Array(chunkBuffer.slice(0, 512));
+            const magicCheck = hasExecutableMagicBytes(initialBytes);
+            if (!magicCheck.safe) {
+                console.error(`[FileTransfer] Blocked executable payload in chunk 0: ${magicCheck.reason}`);
+                return false;
+            }
+        }
+
         const computed = await computeBufferHash(chunkBuffer);
         if (computed !== expectedHash) {
             console.error(`[FileTransfer] Chunk ${index} hash mismatch!`);

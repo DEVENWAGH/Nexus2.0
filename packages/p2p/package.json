@@ -11,12 +11,14 @@
         "./encryption": "./src/encryption.ts",
         "./signaling-client": "./src/signaling-client.ts",
         "./p2p-mesh": "./src/p2p-mesh.ts",
-        "./file-transfer": "./src/file-transfer.ts"
+        "./file-transfer": "./src/file-transfer.ts",
+        "./file-security": "./src/file-security.ts"
     },
     "sideEffects": false,
     "scripts": {
         "dev": "tsc --watch",
         "build": "tsc",
+        "test": "tsx test-file-security.ts",
         "lint": "eslint src"
     },
     "devDependencies": {
@@ -24,6 +26,7 @@
         "@repo/typescript-config": "workspace:*",
         "@types/node": "^22.0.0",
         "eslint": "^9.0.0",
+        "tsx": "^4.22.4",
         "typescript": "^5"
     },
     "dependencies": {

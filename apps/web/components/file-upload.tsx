@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Spinner } from "./ui/spinner";
 import { UPLOAD_FILE_SIZES, fileSizeLabelToBytes } from "@/lib/upload-limits";
 
+import { validateUploadedFile, SAFE_ACCEPT_CONFIG } from "@/lib/file-security";
+
 const MESSAGE_FILE_LIMITS = {
     image: fileSizeLabelToBytes(UPLOAD_FILE_SIZES.messageImage),
     pdf: fileSizeLabelToBytes(UPLOAD_FILE_SIZES.messagePdf),
@@ -73,6 +75,16 @@ const FileUpload = ({ onChange, value, endpoint, onFileSelect, deferUploadForIma
         const file = e.target.files?.[0];
         if (!file) return;
 
+        // Security check: reject executable, script, or auto-run files
+        const securityCheck = await validateUploadedFile(file, endpoint);
+        if (!securityCheck.safe) {
+            toast.error(securityCheck.reason || "Executable and malicious files are restricted.");
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
+            return;
+        }
+
         const sizeError = validateFileSize(file, endpoint);
         if (sizeError) {
             toast.error(sizeError);
@@ -98,8 +110,15 @@ const FileUpload = ({ onChange, value, endpoint, onFileSelect, deferUploadForIma
             });
 
             if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(errText || "Failed to upload file");
+                let errorMsg = "Failed to upload file";
+                try {
+                    const errJson = await response.json();
+                    errorMsg = errJson.error || errJson.message || errorMsg;
+                } catch {
+                    const errText = await response.text();
+                    errorMsg = errText || errorMsg;
+                }
+                throw new Error(errorMsg);
             }
 
             const data = await response.json();
@@ -180,8 +199,8 @@ const FileUpload = ({ onChange, value, endpoint, onFileSelect, deferUploadForIma
                 className="hidden"
                 accept={
                     endpoint === "imageUploader"
-                        ? "image/*"
-                        : "image/*,application/pdf,audio/*,video/*"
+                        ? SAFE_ACCEPT_CONFIG.imageUploader
+                        : SAFE_ACCEPT_CONFIG.messageFile
                 }
                 onChange={handleUpload}
                 disabled={isUploading}

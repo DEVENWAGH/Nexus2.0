@@ -5,5 +5,6 @@ export * from "./gossipsub-signaling";
 export * from "./p2p-mesh";
 export * from "./types";
 export * from "./file-transfer";
+export * from "./file-security";
 export * from "./identity";
 export * from "./relay-router";

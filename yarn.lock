@@ -4084,6 +4084,7 @@ __metadata:
     "@types/node": "npm:^22.0.0"
     eslint: "npm:^9.0.0"
     libp2p: "npm:^3.3.5"
+    tsx: "npm:^4.22.4"
     typescript: "npm:^5"
   languageName: unknown
   linkType: soft

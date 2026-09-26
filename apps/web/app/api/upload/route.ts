@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/auth-wrapper";
+import { validateUploadedFile, sanitizeFilename } from "@/lib/file-security";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,18 @@ export async function POST(req: NextRequest) {
             return new NextResponse("No file uploaded", { status: 400 });
         }
 
+        const endpoint = (formData.get("endpoint") as "imageUploader" | "messageFile") || "messageFile";
+        const declaredName = (file as any).name || "";
+
+        // Enforce file security: reject executable, script, and auto-running files
+        const securityCheck = await validateUploadedFile(file, endpoint, declaredName);
+        if (!securityCheck.safe) {
+            return NextResponse.json(
+                { error: securityCheck.reason || "File rejected: Executable and malicious files are restricted." },
+                { status: 400 }
+            );
+        }
+
         const pinataApiKey = process.env.PINATA_API_KEY;
         const pinataApiSecret = process.env.PINATA_API_SECRET;
 
@@ -24,9 +37,11 @@ export async function POST(req: NextRequest) {
             return new NextResponse("Server misconfigured", { status: 500 });
         }
 
+        const safeFilename = sanitizeFilename(declaredName || "attachment");
+
         // Prepare the multipart form data for Pinata API
         const pinataForm = new FormData();
-        pinataForm.append("file", file, (file as any).name || "file");
+        pinataForm.append("file", file, safeFilename);
 
         const pinataResponse = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
             method: "POST",
