@@ -40,7 +40,7 @@ export default function RootLayout({
             <head>
                 <script
                     dangerouslySetInnerHTML={{
-                        __html: `(function(){try{const o=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){if(typeof n==='string'&&(n==='bis_skin_checked'||n.startsWith('bis_'))){return;}return o.apply(this,arguments);};}catch(e){}})();`,
+                        __html: `(function(){try{var o=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){if(typeof n==='string'&&(n==='bis_skin_checked'||n.startsWith('bis_'))){return;}return o.apply(this,arguments);};var m=new MutationObserver(function(muts){for(var i=0;i<muts.length;i++){var mut=muts[i];if(mut.type==='attributes'&&mut.attributeName&&(mut.attributeName==='bis_skin_checked'||mut.attributeName.startsWith('bis_'))){mut.target.removeAttribute(mut.attributeName);}}});m.observe(document.documentElement,{attributes:true,subtree:true,attributeFilter:['bis_skin_checked']});document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('[bis_skin_checked]').forEach(function(el){el.removeAttribute('bis_skin_checked');});});}catch(e){}})();`,
                     }}
                 />
             </head>
