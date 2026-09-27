@@ -36,7 +36,11 @@ export const useChatSocket = ({
 
         // Join room based on type
         const event = type === "channel" ? "join-channel" : "join-conversation";
-        socket.emit(event, chatId);
+        const joinRoom = () => {
+            socket.emit(event, chatId);
+        };
+        joinRoom();
+        socket.on("connect", joinRoom);
 
         socket.on(updateKey, (message: MessageWithMemberWithProfile) => {
             queryClient.setQueryData(
@@ -92,6 +96,7 @@ export const useChatSocket = ({
         return () => {
             const leaveEvent =
                 type === "channel" ? "leave-channel" : "leave-conversation";
+            socket.off("connect", joinRoom);
             socket.emit(leaveEvent, chatId);
             socket.off(addKey);
             socket.off(updateKey);

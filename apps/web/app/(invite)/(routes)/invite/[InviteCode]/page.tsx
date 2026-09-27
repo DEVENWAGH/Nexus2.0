@@ -43,6 +43,21 @@ const InviteCodePage = async ({
                 role: MemberRole.GUEST,
             },
         });
+
+        // Trigger real-time join notification to server room
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+        try {
+            await fetch(`${backendUrl}/api/servers/join`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-User-Id": profile.userId,
+                },
+                body: JSON.stringify({ inviteCode: InviteCode }),
+            });
+        } catch {
+            // Non-fatal
+        }
     }
 
     return redirect(`/servers/${serverToJoin.id}`);

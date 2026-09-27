@@ -58,7 +58,25 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
             });
             sidToUser.set(socket.id, userId);
             void socket.join(`user:${userId}`);
-            console.log(`[Socket.IO] Identified: ${userId} -> ${socket.id}`);
+            if (data.serverId) {
+                void socket.join(`server:${data.serverId}`);
+                console.log(`[Socket.IO] Identified: ${userId} (server:${data.serverId}) -> ${socket.id}`);
+            } else {
+                console.log(`[Socket.IO] Identified: ${userId} -> ${socket.id}`);
+            }
+        });
+
+        socket.on("join-server", (serverId: string) => {
+            if (serverId) {
+                void socket.join(`server:${serverId}`);
+                console.log(`[Socket.IO] ${socket.id} joined server room: server:${serverId}`);
+            }
+        });
+
+        socket.on("leave-server", (serverId: string) => {
+            if (serverId) {
+                void socket.leave(`server:${serverId}`);
+            }
         });
 
         socket.on("join-channel", (channelId: string) => {
@@ -379,4 +397,27 @@ export function getOnlineUsersForServer(serverId: string): string[] {
         }
     }
     return list;
+}
+
+export function broadcastServerUpdate(
+    io: SocketIOServer,
+    serverId: string,
+    payload: {
+        type: "channel" | "member" | "server";
+        action?: "create" | "update" | "delete" | "join" | "leave";
+        data?: unknown;
+        notification?: { title: string; message: string };
+    },
+    memberUserIds?: string[],
+) {
+    // Broadcast to server room (active viewers of this server)
+    io.to(`server:${serverId}`).emit("server:update", { serverId, ...payload });
+
+    // Also broadcast to all member user rooms so viewers on other pages get updated navigation/counts
+    if (memberUserIds && memberUserIds.length > 0) {
+        for (const uid of memberUserIds) {
+            io.to(`user:${uid}`).emit("server:update", { serverId, ...payload });
+        }
+    }
+    console.log(`[Socket.IO] Broadcast server update to server:${serverId} (${payload.type}:${payload.action ?? ""})`);
 }

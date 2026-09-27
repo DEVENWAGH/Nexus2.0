@@ -9,7 +9,7 @@ import { runAndEmailAudit } from "./lib/audit";
 import { blockchainLogger } from "./lib/blockchain";
 import { localBlockchain } from "./lib/local-blockchain";
 import { normalizeImageBase64 } from "./lib/steganography";
-import { broadcastMessage, broadcastMessageUpdate, isUserLive, getOnlineUsersForServer, getActiveRoomPeers } from "./socket";
+import { broadcastMessage, broadcastMessageUpdate, broadcastServerUpdate, isUserLive, getOnlineUsersForServer, getActiveRoomPeers } from "./socket";
 import { unpinFromPinata, unpinMultipleFromPinata } from "./lib/pinata";
 import { setCookie } from "hono/cookie";
 import { sign } from "hono/jwt";
@@ -33,6 +33,18 @@ const memberInclude = {
         profile: true,
     },
 } as const;
+
+async function getServerMemberUserIds(serverId: string): Promise<string[]> {
+    try {
+        const members = await prisma.member.findMany({
+            where: { serverId },
+            include: { profile: true },
+        });
+        return members.map((m) => m.profile.userId).filter(Boolean);
+    } catch {
+        return [];
+    }
+}
 
 export function createApp(io: SocketIOServer) {
     const app = new Hono<AppEnv>();
@@ -664,6 +676,12 @@ export function createApp(io: SocketIOServer) {
             },
         });
 
+        broadcastServerUpdate(io, server.id, {
+            type: "server",
+            action: "create",
+            data: details,
+        }, [userId]);
+
         return c.json(details, 201);
     });
 
@@ -713,6 +731,18 @@ export function createApp(io: SocketIOServer) {
                 members: { include: { profile: true }, orderBy: { role: "asc" } },
             },
         });
+
+        const memberUserIds = await getServerMemberUserIds(serverId);
+        broadcastServerUpdate(io, serverId, {
+            type: "server",
+            action: "update",
+            data: server,
+            notification: {
+                title: "Server Updated",
+                message: `${server?.name ?? "Server"} settings were updated`,
+            },
+        }, memberUserIds);
+
         return c.json(server);
     });
 
@@ -732,6 +762,8 @@ export function createApp(io: SocketIOServer) {
             return c.json({ error: "Not authorized" }, 403);
         }
 
+        const memberUserIds = await getServerMemberUserIds(serverId);
+
         const serverMsgs = await prisma.message.findMany({
             where: { channel: { serverId }, fileUrl: { not: null } },
             select: { fileUrl: true },
@@ -744,10 +776,21 @@ export function createApp(io: SocketIOServer) {
         await prisma.channel.deleteMany({ where: { serverId } }).catch(() => {});
         await prisma.member.deleteMany({ where: { serverId } }).catch(() => {});
         await prisma.server.delete({ where: { id: serverId } });
+
+        broadcastServerUpdate(io, serverId, {
+            type: "server",
+            action: "delete",
+            data: { serverId },
+            notification: {
+                title: "Server Deleted",
+                message: "This server has been deleted",
+            },
+        }, memberUserIds);
+
         return c.json({ success: true });
     });
 
-    app.patch("/api/servers/:serverId/invite-code", requireAuth, async (c) => {
+    const handleInviteCodeRegen = async (c: any) => {
         const userId = c.get("userId") as string;
         const serverId = c.req.param("serverId");
 
@@ -775,8 +818,19 @@ export function createApp(io: SocketIOServer) {
                 members: { include: { profile: true }, orderBy: { role: "asc" } },
             },
         });
+
+        const memberUserIds = await getServerMemberUserIds(serverId);
+        broadcastServerUpdate(io, serverId, {
+            type: "server",
+            action: "update",
+            data: server,
+        }, memberUserIds);
+
         return c.json(server);
-    });
+    };
+
+    app.patch("/api/servers/:serverId/invite-code", requireAuth, handleInviteCodeRegen);
+    app.patch("/api/servers/:serverId/invite", requireAuth, handleInviteCodeRegen);
 
     app.post("/api/servers/join", requireAuth, async (c) => {
         const userId = c.get("userId") as string;
@@ -815,6 +869,17 @@ export function createApp(io: SocketIOServer) {
                     role: "GUEST",
                 },
             });
+
+            const memberUserIds = await getServerMemberUserIds(server.id);
+            broadcastServerUpdate(io, server.id, {
+                type: "member",
+                action: "join",
+                data: { profileId: profile.id, name: profile.name },
+                notification: {
+                    title: "New Member Joined",
+                    message: `${profile.name || "A new member"} joined the server!`,
+                },
+            }, memberUserIds);
         }
 
         const details = await prisma.server.findUnique({
@@ -827,7 +892,7 @@ export function createApp(io: SocketIOServer) {
         return c.json(details);
     });
 
-    // â”€â”€ Channels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Channels ───────────────────────────────────────────────────────────
     app.post("/api/channels", requireAuth, async (c) => {
         const userId = c.get("userId") as string;
         const body = await c.req.json<{
@@ -837,7 +902,7 @@ export function createApp(io: SocketIOServer) {
         }>();
 
         // serverId is sent as a query param by the frontend (?serverId=...)
-        // but may also arrive in the body â€” support both
+        // but may also arrive in the body — support both
         const serverId = c.req.query("serverId") || body.serverId;
 
         if (!body.name) {
@@ -870,6 +935,18 @@ export function createApp(io: SocketIOServer) {
                 serverId: serverId,
             },
         });
+
+        const memberUserIds = await getServerMemberUserIds(serverId);
+        broadcastServerUpdate(io, serverId, {
+            type: "channel",
+            action: "create",
+            data: channel,
+            notification: {
+                title: "Channel Created",
+                message: `#${channel.name} was created`,
+            },
+        }, memberUserIds);
+
         return c.json(channel, 201);
     });
 
@@ -922,6 +999,19 @@ export function createApp(io: SocketIOServer) {
                     : {}),
             },
         });
+
+        const resolvedServerId = serverId ?? channel.serverId;
+        const memberUserIds = await getServerMemberUserIds(resolvedServerId);
+        broadcastServerUpdate(io, resolvedServerId, {
+            type: "channel",
+            action: "update",
+            data: updated,
+            notification: {
+                title: "Channel Updated",
+                message: `#${updated.name} was updated`,
+            },
+        }, memberUserIds);
+
         return c.json(updated);
     });
 
@@ -961,11 +1051,25 @@ export function createApp(io: SocketIOServer) {
             await unpinMultipleFromPinata(channelMsgs.map((m) => m.fileUrl));
         }
 
+        const resolvedServerId = serverId ?? channel.serverId;
+        const memberUserIds = await getServerMemberUserIds(resolvedServerId);
+
         await prisma.channel.delete({ where: { id: channelId } });
+
+        broadcastServerUpdate(io, resolvedServerId, {
+            type: "channel",
+            action: "delete",
+            data: { channelId, channelName: channel.name },
+            notification: {
+                title: "Channel Deleted",
+                message: `#${channel.name} was deleted`,
+            },
+        }, memberUserIds);
+
         return c.json({ success: true });
     });
 
-    // â”€â”€ Members â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Members ─────────────────────────────────────────────────────────────
     app.patch("/api/members/:memberId", requireAuth, async (c) => {
         const userId = c.get("userId") as string;
         const memberId = c.req.param("memberId");
@@ -1003,13 +1107,26 @@ export function createApp(io: SocketIOServer) {
             data: { role: body.role as "ADMIN" | "MODERATOR" | "GUEST" },
         });
 
+        const resolvedServerId = serverId ?? target.serverId;
         const server = await prisma.server.findUnique({
-            where: { id: serverId ?? target.serverId },
+            where: { id: resolvedServerId },
             include: {
                 channels: { orderBy: { createdAt: "asc" } },
                 members: { include: { profile: true }, orderBy: { role: "asc" } },
             },
         });
+
+        const memberUserIds = await getServerMemberUserIds(resolvedServerId);
+        broadcastServerUpdate(io, resolvedServerId, {
+            type: "member",
+            action: "update",
+            data: { memberId, role: body.role },
+            notification: {
+                title: "Member Role Updated",
+                message: `A member's role was updated to ${body.role}`,
+            },
+        }, memberUserIds);
+
         return c.json(server);
     });
 
@@ -1025,6 +1142,7 @@ export function createApp(io: SocketIOServer) {
 
         const target = await prisma.member.findUnique({
             where: { id: memberId },
+            include: { profile: true },
         });
         if (!target) {
             return c.json({ error: "Member not found" }, 404);
@@ -1061,15 +1179,41 @@ export function createApp(io: SocketIOServer) {
             await unpinMultipleFromPinata(fileUrlsToUnpin);
         }
 
+        const resolvedServerId = serverId ?? target.serverId;
+        const memberUserIds = await getServerMemberUserIds(resolvedServerId);
+
         await prisma.member.delete({ where: { id: memberId } });
 
         const server = await prisma.server.findUnique({
-            where: { id: serverId ?? target.serverId },
+            where: { id: resolvedServerId },
             include: {
                 channels: { orderBy: { createdAt: "asc" } },
                 members: { include: { profile: true }, orderBy: { role: "asc" } },
             },
         });
+
+        broadcastServerUpdate(io, resolvedServerId, {
+            type: "member",
+            action: "delete",
+            data: { memberId, kickedUserId: target.profileId },
+            notification: {
+                title: "Member Removed",
+                message: `${target.profile?.name || "A member"} was removed from the server`,
+            },
+        }, memberUserIds);
+
+        // Also notify the kicked user directly
+        io.to(`user:${target.profile.userId}`).emit("server:update", {
+            serverId: resolvedServerId,
+            type: "member",
+            action: "leave",
+            data: { kicked: true, serverId: resolvedServerId },
+            notification: {
+                title: "Removed from server",
+                message: "You have been removed from the server",
+            },
+        });
+
         return c.json(server);
     });
 
@@ -1098,7 +1242,20 @@ export function createApp(io: SocketIOServer) {
             );
         }
 
+        const memberUserIds = await getServerMemberUserIds(body.serverId);
+
         await prisma.member.delete({ where: { id: member.id } });
+
+        broadcastServerUpdate(io, body.serverId, {
+            type: "member",
+            action: "leave",
+            data: { memberId: member.id, profileId: profile.id },
+            notification: {
+                title: "Member Left",
+                message: `${profile.name || "A member"} left the server`,
+            },
+        }, memberUserIds);
+
         return c.json({ success: true });
     });
 
