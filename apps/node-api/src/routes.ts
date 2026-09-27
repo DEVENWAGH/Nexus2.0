@@ -193,6 +193,14 @@ export function createApp(io: SocketIOServer) {
                 maxAge: 7 * 24 * 60 * 60,
                 sameSite: "Lax",
             });
+            // Client-readable indicator so frontend hooks (useAuth/useUser) know session is present
+            setCookie(c, "nexus_session", "1", {
+                httpOnly: false,
+                secure: process.env.NODE_ENV === "production",
+                path: "/",
+                maxAge: 7 * 24 * 60 * 60,
+                sameSite: "Lax",
+            });
 
             return c.json({ success: true, profile });
         } catch (error) {
@@ -204,6 +212,13 @@ export function createApp(io: SocketIOServer) {
     app.post("/api/profile/logout", async (c) => {
         setCookie(c, "__session", "", {
             httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            path: "/",
+            maxAge: 0,
+            sameSite: "Lax",
+        });
+        setCookie(c, "nexus_session", "", {
+            httpOnly: false,
             secure: process.env.NODE_ENV === "production",
             path: "/",
             maxAge: 0,
@@ -725,6 +740,9 @@ export function createApp(io: SocketIOServer) {
             await unpinMultipleFromPinata(serverMsgs.map((m) => m.fileUrl));
         }
 
+        await prisma.message.deleteMany({ where: { channel: { serverId } } }).catch(() => {});
+        await prisma.channel.deleteMany({ where: { serverId } }).catch(() => {});
+        await prisma.member.deleteMany({ where: { serverId } }).catch(() => {});
         await prisma.server.delete({ where: { id: serverId } });
         return c.json({ success: true });
     });

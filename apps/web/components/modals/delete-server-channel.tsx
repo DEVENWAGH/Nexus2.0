@@ -32,8 +32,7 @@ const DeleteServerChannel = () => {
             });
             await axios.delete(url);
             onClose();
-            router.push(`/servers/${server?.id}`);
-            router.refresh();
+            window.location.href = `/servers/${server?.id}`;
         } catch (error) {
             console.log(
                 "unable to delete the server, try again after some time",

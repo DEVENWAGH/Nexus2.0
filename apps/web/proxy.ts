@@ -16,7 +16,7 @@ export function proxy(request: NextRequest) {
     }
 
     if (session && isAuthPage) {
-        return NextResponse.redirect(new URL("/", request.url));
+        return NextResponse.redirect(new URL("/setup", request.url));
     }
 
     return NextResponse.next();

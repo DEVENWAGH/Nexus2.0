@@ -55,8 +55,9 @@ export default function SignInPage() {
             if (verifyRes.data.success) {
                 localStorage.setItem("nexus-user-id", address);
                 toast.success("Wallet authentication successful!");
-                router.push("/setup");
-                router.refresh();
+                // Hard navigation ensures the fresh __session cookie
+                // is sent with the server request for the setup page
+                window.location.href = "/setup";
             } else {
                 toast.error("Authentication verification failed.");
             }

@@ -25,10 +25,9 @@ const DeleteServerModal = () => {
     async function onConfirm() {
         try {
             setIsLoading(true);
-            await axios.delete(`/api/servers/${server?.id}/delete`);
+            await axios.delete(`/api/servers/${server?.id}`);
             onClose();
-            router.refresh();
-            router.push("/");
+            window.location.href = "/setup";
         } catch (error) {
             console.log(
                 "unable to delete the server, try again after some time",

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
     Dialog,
@@ -43,8 +43,7 @@ const LeaveServerModal = () => {
                 },
             );
             onClose();
-            router.push("/");
-            router.refresh();
+            window.location.href = "/setup";
             toast.success("You left the server.");
         } catch (error) {
             console.log(

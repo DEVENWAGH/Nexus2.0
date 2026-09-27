@@ -33,7 +33,7 @@ const ChannelPage = async ({
         },
     });
     if (!channel || !member) {
-        redirect("/");
+        redirect("/setup");
     }
 
     const server = await prisma.server.findUnique({

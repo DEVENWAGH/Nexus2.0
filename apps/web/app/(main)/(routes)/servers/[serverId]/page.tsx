@@ -35,14 +35,14 @@ const ServerPage = async ({
         },
     });
     if (!server) {
-        return redirect("/sign-in");
+        return redirect("/setup");
     }
 
-    const initialChannel = server?.channels[0];
-    if (initialChannel.name != "general") {
-        return null;
+    const initialChannel = server?.channels?.[0];
+    if (!initialChannel || initialChannel.name !== "general") {
+        return redirect("/setup");
     }
-    return redirect(`/servers/${serverId}/channels/${initialChannel?.id}`);
+    return redirect(`/servers/${serverId}/channels/${initialChannel.id}`);
 };
 
 export default ServerPage;

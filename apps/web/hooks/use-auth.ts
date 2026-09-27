@@ -8,7 +8,7 @@ export function useAuth() {
 
     useEffect(() => {
         let isMounted = true;
-        const hasSession = typeof document !== "undefined" && document.cookie.includes("__session=");
+        const hasSession = typeof document !== "undefined" && (document.cookie.includes("__session=") || document.cookie.includes("nexus_session=1"));
         const stored = typeof window !== "undefined" ? localStorage.getItem("nexus-user-id") : null;
 
         if (stored) {
@@ -22,19 +22,32 @@ export function useAuth() {
             }
         }
 
-        getOrCreateIdentity()
-            .then((identity) => {
-                if (!isMounted) return;
-                const currentStored = typeof window !== "undefined" ? localStorage.getItem("nexus-user-id") : null;
-                // Only overwrite/set if there is no wallet address stored
-                if (!currentStored || currentStored.startsWith("did:key:")) {
-                    if (typeof window !== "undefined") {
-                        localStorage.setItem("nexus-user-id", identity.did);
+        if (hasSession && (!stored || stored.startsWith("did:key:"))) {
+            fetch("/api/profile")
+                .then((r) => (r.ok ? r.json() : null))
+                .then((profile) => {
+                    if (profile?.userId && isMounted) {
+                        if (typeof window !== "undefined") {
+                            localStorage.setItem("nexus-user-id", profile.userId);
+                        }
+                        setUserId(profile.userId);
                     }
-                    setUserId(identity.did);
-                }
-            })
-            .catch(console.error);
+                })
+                .catch(() => {});
+        } else if (!hasSession) {
+            getOrCreateIdentity()
+                .then((identity) => {
+                    if (!isMounted) return;
+                    const currentStored = typeof window !== "undefined" ? localStorage.getItem("nexus-user-id") : null;
+                    if (!currentStored || currentStored.startsWith("did:key:")) {
+                        if (typeof window !== "undefined") {
+                            localStorage.setItem("nexus-user-id", identity.did);
+                        }
+                        setUserId(identity.did);
+                    }
+                })
+                .catch(console.error);
+        }
 
         return () => {
             isMounted = false;
@@ -67,7 +80,7 @@ export function useUser() {
         setIsLoading(false);
     }, [userId]);
 
-    const hasSession = typeof document !== "undefined" && document.cookie.includes("__session=");
+    const hasSession = typeof document !== "undefined" && (document.cookie.includes("__session=") || document.cookie.includes("nexus_session=1"));
 
     return {
         user: profile,

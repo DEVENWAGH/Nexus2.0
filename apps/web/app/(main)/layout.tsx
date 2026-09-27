@@ -1,7 +1,6 @@
 import NavigationSidebar from "@/components/navigation/navigation-sidebar";
 import { ModalProvider } from "@/components/providers/modal-provider";
 import { CallProvider } from "@/components/providers/call-provider";
-import { QueryProvider } from "@/components/providers/query-provider";
 import { SocketProvider } from "@/components/providers/socket-provider";
 import { UnreadProvider } from "@/components/providers/unread-provider";
 
@@ -15,10 +14,8 @@ const MainLayout = async ({ children }: { children: React.ReactNode }) => {
                     </div>
                     <main className="md:ml-18 flex-1 h-screen flex flex-col overflow-hidden">
                         <CallProvider>
-                            <QueryProvider>
-                                <ModalProvider />
-                                {children}
-                            </QueryProvider>
+                            <ModalProvider />
+                            {children}
                         </CallProvider>
                     </main>
                 </UnreadProvider>

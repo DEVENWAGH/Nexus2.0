@@ -31,7 +31,7 @@ const ServerIdLayout = async ({
     });
 
     if (!server) {
-        return redirect("/sign-in");
+        return redirect("/setup");
     }
 
     return (

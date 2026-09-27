@@ -5,6 +5,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { LanguageProvider } from "@/components/providers/language-context";
 import { Toaster } from "@/components/ui/sonner";
+import { QueryProvider } from "@/components/providers/query-provider";
 
 
 export const dynamic = "force-dynamic";
@@ -56,8 +57,10 @@ export default function RootLayout({
                     storageKey="nexus-theme"
                 >
                     <LanguageProvider>
-                        {children}
-                        <Toaster />
+                        <QueryProvider>
+                            {children}
+                            <Toaster />
+                        </QueryProvider>
                     </LanguageProvider>
                 </ThemeProvider>
             </body>
