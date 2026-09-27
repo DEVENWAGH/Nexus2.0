@@ -33,6 +33,7 @@ export function LandingContent({ ctaSlot, ctaSlotSecondary }: LandingContentProp
 
     return (
         <div 
+            suppressHydrationWarning
             className="min-h-screen flex flex-col bg-white dark:bg-brand-canvas text-slate-900 dark:text-white font-sans selection:bg-brand-green selection:text-black overflow-x-hidden transition-colors duration-300"
             style={{
                 // Scoped display font variable override for this page

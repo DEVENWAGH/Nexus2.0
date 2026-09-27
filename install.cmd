@@ -57,6 +57,14 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
+:: Ensure node-datachannel native binary
+if not exist "node_modules\@ipshipyard\node-datachannel\build\Release\node_datachannel.node" (
+    echo [*] Fetching native prebuild for node-datachannel...
+    pushd "node_modules\@ipshipyard\node-datachannel"
+    call npx prebuild-install -r napi >nul 2>&1
+    popd
+)
+
 :: 5. Generate Prisma database client
 echo.
 echo [*] Generating Prisma client definitions...

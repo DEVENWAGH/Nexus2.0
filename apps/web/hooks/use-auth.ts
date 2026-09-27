@@ -8,9 +8,18 @@ export function useAuth() {
 
     useEffect(() => {
         let isMounted = true;
+        const hasSession = typeof document !== "undefined" && document.cookie.includes("__session=");
         const stored = typeof window !== "undefined" ? localStorage.getItem("nexus-user-id") : null;
+
         if (stored) {
-            setUserId(stored);
+            // If stored ID is a wallet address but session cookie is missing, clear it
+            if (!stored.startsWith("did:key:") && !hasSession) {
+                if (typeof window !== "undefined") {
+                    localStorage.removeItem("nexus-user-id");
+                }
+            } else {
+                setUserId(stored);
+            }
         }
 
         getOrCreateIdentity()
@@ -58,9 +67,11 @@ export function useUser() {
         setIsLoading(false);
     }, [userId]);
 
+    const hasSession = typeof document !== "undefined" && document.cookie.includes("__session=");
+
     return {
         user: profile,
         isLoaded: !isLoading,
-        isSignedIn: !!userId && !userId.startsWith("did:key:"),
+        isSignedIn: hasSession && !!userId && !userId.startsWith("did:key:"),
     };
 }

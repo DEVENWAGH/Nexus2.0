@@ -28,10 +28,15 @@ export const UserButton = () => {
         const fetchProfile = async () => {
             try {
                 const res = await axios.get("/api/profile");
-
                 setProfile(res.data);
-            } catch (err) {
-                console.error("Failed to load profile in user button:", err);
+            } catch (err: any) {
+                if (err?.response?.status === 401) {
+                    localStorage.removeItem("nexus-user-id");
+                    document.cookie = "__session=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+                    setProfile(null);
+                } else {
+                    console.error("Failed to load profile in user button:", err);
+                }
             }
         };
         fetchProfile();

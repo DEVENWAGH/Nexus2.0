@@ -37,6 +37,13 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en" suppressHydrationWarning>
+            <head>
+                <script
+                    dangerouslySetInnerHTML={{
+                        __html: `(function(){try{const o=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){if(typeof n==='string'&&(n==='bis_skin_checked'||n.startsWith('bis_'))){return;}return o.apply(this,arguments);};}catch(e){}})();`,
+                    }}
+                />
+            </head>
             <body
                 className={`${spaceGrotesk.variable} ${inter.variable} ${geistMono.variable} antialiased`}
                 suppressHydrationWarning

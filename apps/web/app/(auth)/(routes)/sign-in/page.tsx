@@ -7,43 +7,17 @@ import { toast } from "sonner";
 import { Loader2, ShieldAlert, Wallet } from "lucide-react";
 import axios from "axios";
 
-// Custom lightweight Base58 encoder for Solana signatures
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-function toBase58(buffer: Uint8Array): string {
-    const digits = [0];
-    for (let i = 0; i < buffer.length; i++) {
-        let carry = buffer[i];
-        for (let j = 0; j < digits.length; j++) {
-            carry += digits[j] << 8;
-            digits[j] = carry % 58;
-            carry = Math.floor(carry / 58);
-        }
-        while (carry > 0) {
-            digits.push(carry % 58);
-            carry = Math.floor(carry / 58);
-        }
-    }
-    let string = "";
-    for (let k = 0; buffer[k] === 0 && k < buffer.length - 1; k++) {
-        string += "1";
-    }
-    for (let q = digits.length - 1; q >= 0; q--) {
-        string += BASE58_ALPHABET[digits[q]];
-    }
-    return string;
-}
-
 export default function SignInPage() {
     const router = useRouter();
-    const [isLoading, setIsLoading] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
 
     const handleMetaMaskLogin = async () => {
-        setIsLoading("evm");
+        setIsLoading(true);
         try {
             const ethereum = (window as any).ethereum;
             if (typeof ethereum === "undefined") {
                 toast.error("MetaMask extension not detected! Please install it first.");
-                setIsLoading(null);
+                setIsLoading(false);
                 return;
             }
 
@@ -52,7 +26,7 @@ export default function SignInPage() {
             const address = accounts[0];
             if (!address) {
                 toast.error("No Ethereum account connected.");
-                setIsLoading(null);
+                setIsLoading(false);
                 return;
             }
 
@@ -90,56 +64,7 @@ export default function SignInPage() {
             console.error("MetaMask Login Error details:", error.message || error, error);
             toast.error(error.response?.data?.error || error.message || "Failed to authenticate with MetaMask.");
         } finally {
-            setIsLoading(null);
-        }
-    };
-
-
-
-    const handlePhantomLogin = async () => {
-        setIsLoading("solana");
-        try {
-            const provider = (window as any).solana;
-            if (!provider || !provider.isPhantom) {
-                toast.error("Phantom Wallet not detected! Please install the Phantom extension.");
-                setIsLoading(null);
-                return;
-            }
-
-            // 1. Request Wallet Connection
-            const conn = await provider.connect();
-            const address = conn.publicKey.toString();
-
-            // 2. Fetch Nonce from Node API
-            const nonceRes = await axios.post("/api/profile/nonce", { address });
-            const { nonce } = nonceRes.data;
-
-            // 3. Prompt user to sign challenge
-            const encodedMessage = new TextEncoder().encode(nonce);
-            const signed = await provider.signMessage(encodedMessage, "utf8");
-            const signature = toBase58(signed.signature);
-
-            // 4. Verify signature on backend
-            const verifyRes = await axios.post("/api/profile/verify", {
-                address,
-                signature,
-                walletType: "solana",
-            });
-
-            if (verifyRes.data.success) {
-                localStorage.setItem("nexus-user-id", address);
-                toast.success("Phantom wallet authentication successful!");
-                router.push("/setup");
-                router.refresh();
-            } else {
-                toast.error("Authentication verification failed.");
-            }
-
-        } catch (error: any) {
-            console.error("Phantom Login Error details:", error.message || error, error);
-            toast.error(error.response?.data?.error || error.message || "Failed to authenticate with Phantom.");
-        } finally {
-            setIsLoading(null);
+            setIsLoading(false);
         }
     };
 
@@ -171,10 +96,10 @@ export default function SignInPage() {
                     {/* MetaMask EVM Button */}
                     <button
                         onClick={handleMetaMaskLogin}
-                        disabled={isLoading !== null}
+                        disabled={isLoading}
                         className="flex items-center gap-3 w-full px-4 py-3.5 rounded-xl border border-zinc-800 bg-zinc-900 hover:bg-zinc-800/80 active:scale-[0.98] transition-all disabled:opacity-50 disabled:active:scale-100 font-medium text-sm text-zinc-100 hover:border-orange-500/30 group cursor-pointer"
                     >
-                        {isLoading === "evm" ? (
+                        {isLoading ? (
                             <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
                         ) : (
                             <img
@@ -184,28 +109,6 @@ export default function SignInPage() {
                             />
                         )}
                         <span className="flex-1 text-left">Connect MetaMask (EVM)</span>
-                    </button>
-
-                    {/* Phantom Solana Button */}
-                    <button
-                        onClick={handlePhantomLogin}
-                        disabled={isLoading !== null}
-                        className="flex items-center gap-3 w-full px-4 py-3.5 rounded-xl border border-zinc-800 bg-zinc-900 hover:bg-zinc-800/80 active:scale-[0.98] transition-all disabled:opacity-50 disabled:active:scale-100 font-medium text-sm text-zinc-100 hover:border-purple-500/30 group cursor-pointer"
-                    >
-                        {isLoading === "solana" ? (
-                            <Loader2 className="h-5 w-5 animate-spin text-purple-500" />
-                        ) : (
-                            <img
-                                src="https://static.vecteezy.com/system/resources/previews/024/097/116/non_2x/phantom-solana-wallet-logo-transparent-free-png.png"
-                                alt="Phantom"
-                                className="h-5 w-5 transition-transform group-hover:scale-105"
-                                onError={(e) => {
-                                    // Fallback if image fails to load
-                                    (e.target as any).src = "https://cryptologos.cc/logos/solana-sol-logo.png";
-                                }}
-                            />
-                        )}
-                        <span className="flex-1 text-left">Connect Phantom (Solana)</span>
                     </button>
                 </div>
 

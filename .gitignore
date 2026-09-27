@@ -22,6 +22,11 @@ build/
 .env.local
 .env*.local
 
+# OrbitDB / IPFS runtime data
+**/data/orbitdb/
+**/data/ipfs/
+apps/orbitdb-node/data/
+
 # OS / IDE
 .DS_Store
 *.log

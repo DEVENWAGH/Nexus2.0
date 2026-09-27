@@ -7,7 +7,11 @@ const outfit = Outfit({
 });
 
 const layout = ({ children }: { children: React.ReactNode }) => {
-    return <div className={`${outfit.variable}`}>{children}</div>;
+    return (
+        <div className={`${outfit.variable}`} suppressHydrationWarning>
+            {children}
+        </div>
+    );
 };
 
 export default layout;

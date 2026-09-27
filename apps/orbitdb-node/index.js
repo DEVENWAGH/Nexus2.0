@@ -458,6 +458,21 @@ async function executeQuery(model, db, action, args = {}, allDbs) {
 }
 
 async function start() {
+  const port = process.env.PORT || 3005;
+
+  // Check if an existing OrbitDB instance is already running (e.g. via Docker)
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1000) });
+    if (res.ok) {
+      console.log(`[OrbitDB] Existing OrbitDB service detected on http://127.0.0.1:${port} (e.g. Docker container).`);
+      console.log('[OrbitDB] Reusing running instance. Dev worker ready.');
+      setInterval(() => {}, 60000);
+      return;
+    }
+  } catch {
+    // Port not in use, proceed with starting native instance
+  }
+
   console.log('Initializing libp2p...');
   const libp2p = await createLibp2p({
     addresses: {
